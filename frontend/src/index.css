@@ -1,0 +1,82 @@
+:root {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+  color: #1c1c22;
+  background-color: #f6f6f8;
+}
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.banner {
+  border-left: 4px solid #b08900;
+  background: #fff6d6;
+  padding: 0.75rem 1rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.5rem 0;
+  background: #fff;
+}
+
+th,
+td {
+  border-bottom: 1px solid #ddd;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+th {
+  background: #eeeef2;
+}
+
+.viewer-placeholder {
+  border: 2px dashed #999;
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem;
+  color: #555;
+  background: #fff;
+}
+
+.globe-panel {
+  margin-top: 2rem;
+}
+
+.globe-panel h2 {
+  margin-bottom: 0.5rem;
+}
+
+.globe-canvas {
+  height: 480px;
+  width: 100%;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #000;
+}
+
+.globe-canvas .cesium-viewer-bottom {
+  left: 0.5rem;
+  bottom: 0.5rem;
+}
+
+.attribution {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.error {
+  border: 1px solid #b3261e;
+  background: #fdecea;
+  padding: 0.75rem 1rem;
+}
+
+.error h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}

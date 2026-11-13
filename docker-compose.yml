@@ -1,0 +1,10 @@
+# Flyway applies the schema in db/migration. There is deliberately no local
+# database service here: the database is hosted (Neon). Connection settings are
+# read from backend/.env, which is gitignored, so no password lives in this file.
+services:
+  flyway:
+    image: flyway/flyway:10
+    env_file: ./backend/.env
+    volumes:
+      - ./db/migration:/flyway/sql:ro
+    command: migrate
