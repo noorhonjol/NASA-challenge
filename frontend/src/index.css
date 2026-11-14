@@ -330,3 +330,11 @@ a { color: #9edcff; }
     grid-template-columns: 1fr;
   }
 }
+
+.globe-canvas.is-placing-pin { cursor: crosshair; }
+.mission-pin-tile { margin: 16px 0; padding: 16px; border: 1px solid #8a7544; border-radius: 10px; background: #322b1b; }
+.mission-pin-tile h2 { margin: 8px 0; font-size: 17px; color: #ffe5a1; overflow-wrap: anywhere; }
+.mission-pin-tile button { width: 100%; padding: 11px; background: #ffd166; color: #30220c; border: 0; border-radius: 7px; font-weight: 650; }
+.mission-pin-controls { grid-column: 1 / -1; padding: 12px; border: 1px solid #40536a; border-radius: 8px; display: grid; gap: 10px; }
+.mission-pin-controls button { padding: 10px; border-radius: 7px; border: 1px solid #638ca6; background: #1c354a; color: #d6edff; }
+.mission-pin-controls button[aria-pressed="true"] { background: #66501d; border-color: #ffd166; }

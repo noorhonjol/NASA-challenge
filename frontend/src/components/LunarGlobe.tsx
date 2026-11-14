@@ -23,6 +23,7 @@ type Props = {
   children?: ReactNode;
   sites: Site[];
   onSiteSelect?: (id: string) => void;
+  onPinPlace?: (point: {latitude: number; longitude: number; elevation: number}) => void;
   positions?: Positions | null;
   options?: GlobeOptions;
   createGlobe?: CreateGlobe;
@@ -33,6 +34,7 @@ export function LunarGlobe({
   children,
   sites,
   onSiteSelect,
+  onPinPlace,
   positions,
   options,
   createGlobe = loadGlobe,
@@ -49,6 +51,8 @@ export function LunarGlobe({
   const body = options?.body ?? "moon";
   const sceneProps = useRef({ sites, positions, options });
   const selectSiteRef = useRef(onSiteSelect);
+  const placePinRef = useRef(onPinPlace);
+  useEffect(() => {placePinRef.current=onPinPlace;},[onPinPlace]);
   useEffect(() => {selectSiteRef.current=onSiteSelect;},[onSiteSelect]);
 
   useEffect(() => { sceneProps.current = { sites, positions, options }; }, [sites, positions, options]);
@@ -65,6 +69,8 @@ export function LunarGlobe({
     element.addEventListener("terrain-loading", onTerrainLoading);
     const onSelected = (event: Event) => selectSiteRef.current?.(String((event as CustomEvent).detail));
     element.addEventListener("site-selected", onSelected);
+    const onPlaced = (event: Event) => placePinRef.current?.((event as CustomEvent).detail);
+    element.addEventListener("pin-placed", onPlaced);
 
     let handle: GlobeHandle | null = null;
     let cancelled = false;
@@ -93,6 +99,7 @@ export function LunarGlobe({
       element.removeEventListener("imagery-warning", onWarning);
       element.removeEventListener("terrain-loading", onTerrainLoading);
       element.removeEventListener("site-selected", onSelected);
+      element.removeEventListener("pin-placed", onPlaced);
     };
   }, [body, createGlobe, supported]);
 
@@ -107,7 +114,7 @@ export function LunarGlobe({
 
   return (
     <section className="globe-panel">
-      {supported && <div ref={containerRef} className="globe-canvas" aria-label={options?.body === "earth" ? "Interactive Earth globe" : "Interactive Moon globe"} />}
+      {supported && <div ref={containerRef} className={`globe-canvas ${options?.pinPlacement ? "is-placing-pin" : ""}`} aria-label={options?.body === "earth" ? "Interactive Earth globe" : "Interactive Moon globe"} />}
       <aside className={`explorer-panel ${panelOpen ? "is-open" : "is-collapsed"}`} aria-label="Explorer controls">
       <div className="panel-heading">
         <span className="panel-brand">Lunar Planner</span>

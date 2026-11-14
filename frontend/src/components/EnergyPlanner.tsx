@@ -20,11 +20,13 @@ export function EnergyPlanner({
   lon,
   at,
   onClose,
+  siteName,
 }: {
   lat: number;
   lon: number;
   at: string;
   onClose: () => void;
+  siteName?: string;
 }) {
   const [task, setTask] = useState<EnergyTask>("point");
   const [mode, setMode] = useState("auto");
@@ -219,6 +221,7 @@ export function EnergyPlanner({
         <div>
           <p className="eyebrow">LUNAR ENERGY API · V1</p>
           <h1>Solar conditions & mission energy</h1>
+          {siteName && <p>Site: {siteName} · {initialAt.replace("T", " ")} UTC</p>}
         </div>
         <button type="button" onClick={onClose}>
           Close planner

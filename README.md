@@ -434,3 +434,14 @@ To precompute horizons for known sites, supply a JSON list of Location objects:
 `python scripts/prepare_energy.py --horizons locations.json`. Normal requests reuse
 these profiles and lazily create missing profiles. Changing observer height or the
 DEM/algorithm version creates a different cache entry.
+
+### Pins to calculations
+
+On the Moon page, enter an optional **Pin title**, click **Add pin on Moon**, then
+click the surface. Alternatively enter coordinates and click **Pin these coordinates**.
+The selected pin gets a tile with its title, coordinates and the page's UTC time.
+Choose that time and click **Calculate energy for this pin**. The modal receives
+both the pin's coordinates and the first page's time. Choosing another pin or time
+opens a fresh calculation; reopening the same selection preserves its current form.
+Pins are available in the location selector for the current session. Energy analysis
+still samples elevation from LOLA, independently of the marker's display height.

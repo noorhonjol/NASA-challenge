@@ -77,3 +77,12 @@ test("updates scene objects without rebuilding the viewer or triggering a camera
   unmount();
   expect(destroy).toHaveBeenCalledTimes(1);
 });
+
+test("forwards a newly placed surface pin to the pin page", async () => {
+  const onPinPlace=vi.fn();
+  const {container}=render(<LunarGlobe sites={[]} webglSupported={webgl} onPinPlace={onPinPlace} createGlobe={async()=>({destroy(){}})}/>);
+  const canvas=container.querySelector('[aria-label="Interactive Moon globe"]')!;
+  const point={latitude:-89.5,longitude:22,elevation:1200};
+  canvas.dispatchEvent(new CustomEvent('pin-placed',{detail:point}));
+  expect(onPinPlace).toHaveBeenCalledWith(point);
+});
