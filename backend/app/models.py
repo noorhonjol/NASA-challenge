@@ -65,6 +65,11 @@ class TerrainDataset(SQLModel, table=True):
     )
     license: str | None = Field(default=None, sa_column=Column(Text))
     notes: str | None = Field(default=None, sa_column=Column(Text))
+    catalog_key: str | None = Field(default=None, sa_column=Column(Text, unique=True))
+    provenance: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False, server_default="{}"),
+    )
 
 
 class AnalysisRun(SQLModel, table=True):

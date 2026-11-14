@@ -1,12 +1,139 @@
 # Lunar Planner
 
-A lunar surface-visibility planner, currently at **Phase 1: a runnable skeleton**.
+A lunar surface-visibility planner with live JPL Horizons Sun and Earth positions.
 
-This is not a working visibility calculator. The seeded sites are **fictional**, and no
-astronomical, terrain, or illumination analysis is computed or displayed. What works is
-the plumbing later phases depend on: a PostgreSQL schema applied from SQL files, a FastAPI
-backend reading it through SQLModel, and a React/TypeScript frontend that lists the sites
-and shows them on a lunar globe.
+## Local 3D terrain: download and prepare
+
+The Moon renderer uses the **South Pole LOLA DEM Mosaic, NASA PGDA product 81**
+(https://pgda.gsfc.nasa.gov/products/81), covering 87-90 degrees south at 5 m native
+spacing. MIT's LOLA archive (https://imbrium.mit.edu/) links to this same PGDA product.
+Rendering uses locally prepared files, without NASA imagery/raster requests while
+navigating. A 50 m overview and relief image load once. At close zoom, small native
+5 m chunks load from the local backend and are cached; at most 64 detailed chunks
+remain in memory. Cesium generates its geometry from these browser arrays.
+Earth satellite imagery and explicitly requested Horizons positions still use their
+external services.
+
+From `backend`, after migrations and installing `requirements.txt`:
+
+```powershell
+python scripts/download_mosaic81.py
+python scripts/prepare_mosaic81.py
+```
+
+The resumable download retains the original 3,465,285,714-byte GeoTIFF under
+`backend/data/terrain/Mosaic81/`. Preparation reads the 40,000 x 40,000 raster in
+bounded-memory row bands, creates overlapping 1,024-cell detail chunks, and retains
+a global PDS LOLA LDEM_16 backdrop under `backend/data/terrain/global/` (gitignored).
+`TERRAIN_DATA_DIR` can point to a persistent data volume. The database records each
+download's SHA-256, local metadata and browser readiness. No large raster blobs are
+inserted into PostgreSQL. Keep this directory when deploying or run the preparation
+commands on the destination machine.
+
+Preparation produces gzip-compressed, row-delta encoded Int16 grids and a geographic
+PNG relief image. Native detail spacing remains 5 m; display heights have 0.5 m
+quantization (at most 0.25 m quantization error). The original float GeoTIFF remains
+unchanged for future analysis. The global display grid is 8 pixels per degree
+(about 3.8 km north/south sampling). A 250 m perimeter blends the polar coverage
+into the global surface. This edge blend is visual, not source DEM data.
+
+In the panel, choose **Moon** and enable **3D elevation terrain**. The product 81
+mosaic is enabled by default without moving the camera. **Inspect 3D terrain** moves
+to an oblique inspection view; ordinary terrain/ephemeris updates preserve the
+camera. **LOLA terrain dataset** switches between the mosaic and global-only view.
+Locations beyond 87 degrees south use the coarse global grid. Heights are
+shown at 1x. Relief shading uses fixed light, not the chosen date's actual shadows;
+Sun/Earth visibility calculations still exclude terrain obstruction.
+
+`GET /api/terrain/browser-manifest` lists prepared regions and versioned static asset
+URLs. `/api/terrain/assets/...` streams prepared files only, with no raster decoding,
+reprojection or database query per request. The older `/api/terrain/manifest`,
+`/tiles/...` and `/imagery/...` endpoints remain available for diagnostics; the
+frontend does not use them. Restart the API and Vite after changing dependencies.
+
+## Coordinate globe explorer
+
+Choose **Moon** or **Earth**, enter latitude/longitude, and click **Fly to coordinates**.
+This does not call Horizons or require the site database. Moon imagery is local;
+Earth imagery streams from Esri World Imagery. Both have bundled NASA global images.
+Left-drag orbits on a sphere centered on the selected body,
+preserving the current radius and pointing toward its center. Scroll changes radius
+along the same radial line. Right-drag looks around from a fixed position; Shift +
+right-drag rolls around the viewing ray. **Center view**, or R while the globe has
+focus, restores the center-facing view without moving the camera. **Whole globe**
+and **Fly to site** move to explicit center-facing camera presets.
+
+Orbit input is custom rather than Cesium's terrain-pivoted default: there is no
+linear panning or post-drag inertia. Close-up orbit speed scales with altitude.
+Touch supports one-finger orbit and two-finger pinch zoom. Zoom is limited to at
+least 40 m above the body's enclosing reference sphere; the lunar maximum altitude
+is 1,000,000 km, so the Earth–Moon relationship can also be explored from afar.
+
+On the Moon, **Show Sun & Earth** loads live Horizons bearings and ranges; **Look toward
+Earth/Sun** moves the camera above the site and looks along that body's bearing.
+Earth is drawn with static NASA Blue Marble imagery: its face and phase are illustrative,
+not time-resolved. Below-ground bodies are occluded. Both surfaces remain smooth reference
+ellipsoids when terrain is disabled. Downloaded LOLA grids provide real lunar relief,
+but are not yet used for terrain-aware visibility. The reference project's omitted
+terrain/precomputed analysis files are not imported.
+See `frontend/public/textures/SOURCES.md` for imagery provenance.
+
+Sun and Earth each have a full-range dashed sight line, translucent connection polygon,
+and edge lines from the lunar observer. These are illustrative sight planes, not
+communication coverage or terrain-aware lighting. Changes to coordinates or date update
+scene objects in the existing viewer and preserve the camera; only explicit camera-view
+buttons or **Fly to coordinates** move it. X/Y/Z wheel controls have been removed.
+
+## Terrain catalog and replacement history
+
+Migration V3 initially registered product 78's 27 separate regional models.
+V4 registers product 81 (`catalog_key: pgda-81:87S`); V5 removes product 78 records,
+preserving any historical analysis-run terrain metadata before detaching its FK.
+V6 adds 27 named product 78 region centers as navigation pins, and V7 removes
+the fictional demonstration sites. One **Named LOLA location** selector and
+clickable map pins navigate these locations while retaining the product 81 mosaic.
+Pins represent regional raster centers, not official landing coordinates. Fifteen
+centers are inside the 87–90°S mosaic and use elevations sampled from its native
+5 m grid; the others use global LOLA terrain and show an outside-coverage note.
+Applied migration files remain immutable. The active dataset keeps its original
+source URL, lunar stereographic CRS, MOON_ME/DE421 frame, 5 m native spacing,
+original-file SHA-256, coverage and browser-preparation metadata. Raster pixels
+remain on disk rather than in PostgreSQL.
+
+For an existing product 78 installation, prepare and verify product 81 first.
+Then `python scripts/remove_legacy78.py --delete` removes only the old regional
+directories from the saved replacement plan, after validating that the product 81
+assets exist and all delete paths are children of the configured terrain directory.
+The global baseline and `Mosaic81` are retained. The older product 78 download tools
+are historical; do not run them to provision a new installation.
+
+Read the catalog through `GET /api/terrain-datasets` and individual records through
+`GET /api/terrain-datasets/{id}`. API docs are at `/docs`. Missing IDs return 404;
+database failures return 503. Apply the migration with `docker compose run --rm
+flyway` and restart the API to load the new routes.
+
+When using these data, cite Barker et al. (2021), *Improved LOLA Elevation Maps for
+South Pole Landing Sites: Error Estimates and Their Impact on Illumination
+Conditions*, https://doi.org/10.1016/j.pss.2020.105119, as requested by NASA PGDA.
+
+Choose saved sites or custom lunar coordinates, enter a UTC date, and select **Show Sun &
+Earth**. The backend queries JPL Horizons directly for both bodies; the UI plots their
+airless azimuth/elevation and shows whether their centers are above the local tangent
+plane. The globe marks the returned observer coordinates alongside the named region pins.
+No terrain obstruction, horizon dip, eclipses, power yield, or communication link budget
+is calculated. No ephemeris samples are stored. Internet access to JPL is required.
+
+`GET /api/positions?lat=-86&lon=2.7&elevation_m=5000&at=2026-11-14T23:05:00Z`
+works independently of the database. Coordinates are MOON_ME, longitude positive east;
+altitude is meters above the lunar reference ellipsoid. Explicit timezone required.
+Dates are limited to 1550–2649. JPL uses UT1 before 1962; modern dates use UTC.
+Upstream failures return 502 with a retryable error. Requests use observer quantity 4,
+Moon center `coord@301`, Sun target 10 and Earth target 399.
+
+Apply migration V2 using `docker compose run --rm flyway` to drop `ephemeris_samples`
+if it exists; previously applied migrations are unchanged. Restart the backend after
+updating so `/api/positions` appears in `/docs`. If Vite returns 404, check its
+`API_PROXY_TARGET` and restart the API on that port.
 
 ## How to run
 

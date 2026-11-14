@@ -13,20 +13,20 @@ class BrokenSession:
         raise OperationalError("SELECT 1", {}, Exception("connection refused"))
 
 
-def test_sites_lists_seeded_fictional_sites():
+def test_sites_lists_named_lola_regions_without_fictional_sites():
     response = TestClient(app).get("/api/sites")
     assert response.status_code == 200
     sites = response.json()
-    assert len(sites) >= 3
+    assert len(sites) == 27
     slugs = {site["slug"] for site in sites}
-    assert {"shackleton-rim-fictional", "malapert-massif-fictional"} <= slugs
-    assert all(site["is_fictional"] is True for site in sites)
+    assert {"pgda-78-site01", "pgda-78-site04"} <= slugs
+    assert all(site["is_fictional"] is False for site in sites)
     assert all(site["frame"] == "MOON_ME" for site in sites)
 
 
 def test_site_with_null_elevation_serializes_as_null():
     sites = TestClient(app).get("/api/sites").json()
-    basin = next(site for site in sites if site["slug"] == "de-gerlache-basin-fictional")
+    basin = next(site for site in sites if site["slug"] == "pgda-78-dm1")
     assert basin["elevation_m"] is None
 
 
@@ -43,7 +43,7 @@ def test_non_numeric_site_id_returns_422():
 def test_site_by_id_returns_the_seeded_site():
     client = TestClient(app)
     listed = client.get("/api/sites").json()
-    site = next(item for item in listed if item["slug"] == "shackleton-rim-fictional")
+    site = next(item for item in listed if item["slug"] == "pgda-78-site04")
     response = client.get(f"/api/sites/{site['id']}")
     assert response.status_code == 200
     assert response.json() == site

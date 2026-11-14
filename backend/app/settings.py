@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -10,6 +11,7 @@ class Settings(BaseSettings):
     """Configuration loaded from the environment or backend/.env."""
 
     database_url: str = ""
+    terrain_data_dir: str = str(Path(__file__).resolve().parents[1] / "data" / "terrain")
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

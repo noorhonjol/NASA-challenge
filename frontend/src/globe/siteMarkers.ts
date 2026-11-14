@@ -28,6 +28,7 @@ export function toSiteMarkers(sites: Site[]): SiteMarker[] {
     frame: site.frame,
     description:
       `${site.name} — ${site.slug}. Frame ${site.frame}` +
-      (site.is_fictional ? ". Fictional placeholder site." : "."),
+      (site.is_fictional ? ". Fictional placeholder site." : ".") +
+      (site.notes ? ` ${site.notes}` : ""),
   }));
 }

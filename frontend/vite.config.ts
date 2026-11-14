@@ -15,6 +15,8 @@ const cesiumPlugin = cesium as unknown as () => PluginOption
 export default defineConfig({
   plugins: [react(), cesiumPlugin()],
   server: {
+    // Windows file notifications can miss edits made by external processes.
+    watch: { usePolling: process.platform === 'win32', interval: 500 },
     proxy: {
       '/api': apiTarget,
     },

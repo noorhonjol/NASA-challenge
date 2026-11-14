@@ -5,3 +5,6 @@ psycopg[binary]
 pydantic-settings
 pytest
 httpx
+numpy
+rasterio
+Pillow

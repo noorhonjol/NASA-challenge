@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
 from .db import get_session
-from .routers import sites
+from .routers import sites, positions, terrain_datasets, terrain
 
 
 def create_app() -> FastAPI:
@@ -31,6 +31,9 @@ def create_app() -> FastAPI:
         return {"status": "ok", "database": "ok"}
 
     app.include_router(sites.router)
+    app.include_router(positions.router)
+    app.include_router(terrain_datasets.router)
+    app.include_router(terrain.router)
 
     return app
 
