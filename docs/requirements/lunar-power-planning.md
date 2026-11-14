@@ -1,6 +1,8 @@
 # Lunar power planning — requirements and preliminary analysis
 
-Status: feature requirements and preliminary analysis. Automatic local LOLA elevation confirmed by user on 2026-11-15.
+Status: earlier screening proposal; superseded where different by [Lunar Energy API v1](lunar-energy-api-v1.md).
+
+Original status: feature requirements and preliminary analysis. Automatic local LOLA elevation confirmed by user on 2026-11-15.
 Date: 2026-11-15.
 
 This document describes the intended feature. It does not establish that existing
