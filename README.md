@@ -310,3 +310,87 @@ an Earth globe:
 5. Add terrain relief to the globe (Cesium Moon 3D Tiles via an ion token, or an imported
    LOLA DEM) and add visibility charts.
 6. Compare two analysis runs and document uncertainty and limitations.
+
+## Power planning API
+
+The planning endpoints extend the existing single-epoch `/api/positions` API without
+changing it. They query live Horizons and do not require database queries or new
+migrations. Use `/docs` to submit requests and inspect the input schemas.
+
+| POST route | Use |
+|---|---|
+| `/api/planning/analysis` | Compare explicit `points` or a rectangular `grid` over `start`–`end` |
+| `/api/planning/power` | Estimate generation, demand and storage for a point, arrival date and mission duration |
+| `/api/planning/windows` | Find sampled operating intervals satisfying equipment power and optional Earth visibility constraints |
+
+Example area analysis body:
+
+```json
+{
+  "grid": {"south": -89.5, "north": -89.0, "west": 0, "east": 1, "rows": 2, "columns": 2, "elevation_m": 0},
+  "start": "2026-11-14T00:00:00Z",
+  "end": "2026-11-15T00:00:00Z",
+  "step_hours": 6,
+  "equipment": {
+    "load_w": 100,
+    "panel_area_m2": 4,
+    "panel_efficiency": 0.3,
+    "system_efficiency": 0.85,
+    "panel_mode": "horizontal",
+    "battery_wh": 2000,
+    "usable_battery_fraction": 0.8,
+    "minimum_earth_elevation_deg": 2,
+    "require_earth_visibility": true
+  }
+}
+```
+
+To compare selected sites instead, replace `grid` with
+`"points": [{"lat": -89, "lon": 0, "elevation_m": 0}, {"lat": -88, "lon": 1}]`.
+Grid samples include their bounds, in row-major order from south/west. Elevation is
+user supplied and constant across a grid; it is not sampled from LOLA. Split grids
+crossing the antimeridian into separate requests.
+
+For `/api/planning/power`, supply `point`, `at`, `duration_hours`, `step_hours` and
+`equipment`. Duration defaults to 24 hours; a single instant cannot determine a
+mission's energy or storage needs. For `/api/planning/windows`, supply `point`,
+`start`, `end`, `step_hours`, `equipment` and `minimum_duration_hours` (default 1).
+These windows indicate solar-powered surface operation at the site, not launch or
+trajectory feasibility.
+
+Each response includes the submitted equipment, assumptions and provenance.
+Samples include Sun/Earth positions, normal and panel-plane irradiance (W/m²),
+electrical generation and net power (W), instantaneous required panel area (m²),
+and constraint status. Required panel area is `null` when there is no incident
+sunlight. Summaries include generated/load energy (Wh), minimum initial usable
+energy, minimum usable storage, nameplate battery size and whether the supplied
+battery is sufficient when initially full. Storage uses the maximum cumulative
+energy drawdown, including interpolated net-power crossings; the minimum initial
+energy assumes sufficient capacity to retain subsequent surplus generation.
+
+Irradiance uses **1361 W/m² at 1 AU**, scaled by the inverse square of Horizons'
+Sun range ([NASA solar irradiance reference](https://data.giss.nasa.gov/modelforce/solar.irradiance/)).
+Horizontal arrays use the sine of solar elevation; `sun_tracking` assumes ideal
+normal incidence while the Sun's center is above the tangent horizon. Electrical
+yield multiplies panel area, panel efficiency and system efficiency. Input load
+must include the user's instruments, heaters and communications equipment.
+
+Energy is integrated using linearly interpolated generation between epochs. A
+window requires power to meet load and, if requested, Earth's elevation to exceed
+the supplied threshold at both endpoints of every included interval. Adjacent
+intervals merge; isolated qualifying samples do not form a window. Batteries do
+not extend operating windows. Boundaries are sampling estimates, not refined event
+times; smaller steps improve temporal resolution but cannot recover terrain effects.
+
+These are **screening estimates**: terrain obstruction, horizon dip, eclipses,
+panel temperature/degradation, battery losses/charge-rate limits and communication
+link budgets are excluded. Battery adequacy is for power only, independently of
+Earth visibility. No thermal survival or travel-energy model is inferred from
+coordinates. Use a terrain-aware engineering analysis before operational decisions.
+
+Inputs require explicit timezones, dates in 1550–2649, increasing ranges up to 366
+days, and finite physical parameters. Requests are limited to **128 point/epoch
+combinations**, with steps between 0.25 and 168 hours. The exact end is always
+included even for a partial final interval. Each combination currently makes two
+serialized Horizons requests, so keep interactive comparisons small. Invalid inputs
+return 422; an upstream failure aborts the request with 502, without partial results.
