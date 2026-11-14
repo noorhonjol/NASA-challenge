@@ -1,16 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import App from "./App";
 import type { ReactNode } from "react";
 
 vi.mock("./components/LunarGlobe", () => ({ LunarGlobe: ({options, children}: {children: ReactNode; options: {body: string; target?: {latitude: number; longitude: number} | null}}) =>
   <>{children}<div data-testid="globe">{options.body}:{options.target?.latitude},{options.target?.longitude}</div></> }));
 
-beforeEach(() => {
-  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {configurable: true, value: function (this: HTMLDialogElement) {this.setAttribute("open", "");}});
-  Object.defineProperty(HTMLDialogElement.prototype, "close", {configurable: true, value: function (this: HTMLDialogElement) {this.removeAttribute("open");}});
-});
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 test("shows an error state when the backend is unreachable", async () => {
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
@@ -63,21 +59,15 @@ test("product 81 becomes the active dataset without requesting a camera flight",
   expect(screen.getByTestId("globe")).toHaveTextContent("moon:-89.5,0");
 });
 
-test("opens a modal from navigation and preserves inputs after closing", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ok: true, json: async () => []}));
-  render(<App />);
-  fireEvent.click(screen.getByRole("button", {name: "Mission planner"}));
-  expect(screen.getByRole("region", {name: "Mission power planner"})).toBeInTheDocument();
-  expect(screen.getByRole("dialog", {name: "Mission planner"})).toHaveAttribute("open");
-  fireEvent.change(screen.getByLabelText("Planning task"), {target: {value: "power"}});
-  fireEvent.change(screen.getByLabelText("Continuous load (W)"), {target: {value: "250"}});
-  fireEvent.click(screen.getByRole("button", {name: "Close planner"}));
-  expect(screen.queryByRole("region", {name: "Mission power planner"})).not.toBeInTheDocument();
-  expect(screen.getByRole("button", {name: "Globe explorer"})).toHaveAttribute("aria-current", "page");
-  fireEvent.click(screen.getByRole("button", {name: "Mission planner"}));
-  expect(screen.getByLabelText("Continuous load (W)")).toHaveValue(250);
-  fireEvent(screen.getByRole("dialog", {name: "Mission planner"}), new Event("cancel", {bubbles: true, cancelable: true}));
+test("navigation opens the new energy modal over the existing globe", async () => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {configurable:true,value:function(this:HTMLDialogElement){this.setAttribute("open","");}});
+  Object.defineProperty(HTMLDialogElement.prototype, "close", {configurable:true,value:function(this:HTMLDialogElement){this.removeAttribute("open");}});
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ok:true,json:async()=>[]}));
+  render(<App/>);
+  fireEvent.click(screen.getByRole("button",{name:"Mission planner"}));
+  expect(screen.getByRole("dialog",{name:"Lunar Energy planner"})).toHaveAttribute("open");
+  expect(screen.getByTestId("globe")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button",{name:"Close planner"}));
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  expect(screen.getByRole("button", {name: "Mission planner"})).toHaveFocus();
   await screen.findByText(/3D terrain unavailable/);
 });

@@ -226,3 +226,6 @@ frontend/dist/
 backend/data/terrain/
 *.local
 
+
+# Local DE440 kernels and acquisition manifests
+backend/data/spice/

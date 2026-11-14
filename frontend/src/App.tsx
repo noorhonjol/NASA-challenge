@@ -1,23 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GlobeOptions } from "./globe/createLunarViewer";
 import { fetchPositions, fetchSites, fetchTerrainManifest, type Positions, type Site, type TerrainManifest } from "./api/client";
-import { PlanningPanel } from "./components/PlanningPanel";
+import { EnergyPlanner } from "./components/EnergyPlanner";
 import { LunarGlobe } from "./components/LunarGlobe";
 
 function App() {
-  const [plannerOpen, setPlannerOpen] = useState(false);
-  const [plannerVisited, setPlannerVisited] = useState(false);
-  const plannerDialog = useRef<HTMLDialogElement>(null);
-  const plannerTrigger = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    const dialog = plannerDialog.current;
-    if (!dialog) return;
-    if (plannerOpen && !dialog.open) dialog.showModal();
-    if (!plannerOpen && dialog.open) {
-      dialog.close();
-      plannerTrigger.current?.focus();
-    }
-  }, [plannerOpen]);
+  const energyDialog = useRef<HTMLDialogElement>(null);
+  const [energyVisited,setEnergyVisited] = useState(false);
   const [body, setBody] = useState<"moon" | "earth">("moon");
   const activeBody=useRef<"moon"|"earth">("moon");
   const [target, setTarget] = useState<GlobeOptions["target"]>(null);
@@ -86,14 +75,12 @@ function App() {
   const globeOptions = useMemo(() => ({ body, target, flyToTarget, flightMode, terrainEnabled, terrainRegion }), [body, target, flyToTarget, flightMode, terrainEnabled, terrainRegion]);
 
   return <main>
-    <nav className="app-nav" aria-label="Main navigation">
-      <span className="app-brand">Lunar Planner<span>MISSION EXPLORER</span></span>
-      <div className="app-nav-links">
-        <button type="button" aria-current={!plannerOpen ? "page" : undefined} aria-controls="globe-workspace" onClick={() => setPlannerOpen(false)}>Globe explorer</button>
-        <button ref={plannerTrigger} type="button" aria-haspopup="dialog" aria-expanded={plannerOpen} aria-controls="planning-workspace" onClick={() => {setPlannerVisited(true); setPlannerOpen(true);}}>Mission planner</button>
-      </div>
+    <nav className="energy-nav" aria-label="Main navigation">
+      <strong>Lunar Planner</strong>
+      <button type="button" aria-current="page" onClick={() => energyDialog.current?.close()}>Globe explorer</button>
+      <button type="button" aria-haspopup="dialog" aria-controls="energy-dialog" onClick={() => {setEnergyVisited(true); energyDialog.current?.showModal();}}>Mission planner</button>
     </nav>
-    <div id="globe-workspace" className="app-workspace">
+    <div className="globe-workspace">
     <LunarGlobe sites={sites} positions={data} options={globeOptions} onSiteSelect={chooseSite}>
     <header><p className="eyebrow">LUNAR MISSION EXPLORER</p><h1>Lunar Planner</h1><p>Explore sunlight and Earth visibility from the Moon.</p></header>
     <form className="controls" onSubmit={event => {
@@ -141,8 +128,8 @@ function App() {
     {!data && !loading && <p>Enter coordinates and fly to the location. On the Moon, load Sun & Earth to look toward them from the site.</p>}
     </LunarGlobe>
     </div>
-    <dialog ref={plannerDialog} id="planning-workspace" className="planning-workspace" aria-label="Mission planner" onCancel={event => {event.preventDefault(); setPlannerOpen(false);}} onClose={() => setPlannerOpen(false)} onClick={event => {if (event.target === event.currentTarget) setPlannerOpen(false);}}>
-      {plannerVisited && <PlanningPanel point={body === "moon" ? {lat: Number(lat), lon: Number(lon)} : {lat: -89.45, lon: 129.2}} at={at} sites={sites} onClose={() => setPlannerOpen(false)}/>}
+    <dialog ref={energyDialog} id="energy-dialog" aria-label="Lunar Energy planner" className="energy-dialog" onClick={event => {if (event.target === event.currentTarget) energyDialog.current?.close();}}>
+      {energyVisited && <EnergyPlanner lat={body === "moon" ? Number(lat) : -89.45} lon={body === "moon" ? Number(lon) : 129.2} at={at} onClose={() => energyDialog.current?.close()}/>}
     </dialog>
   </main>;
 }

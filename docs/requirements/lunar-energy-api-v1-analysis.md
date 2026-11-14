@@ -1,6 +1,10 @@
 # Lunar Energy API v1 — preliminary implementation analysis
 
-Date: 2026-11-15. Status: review, not an implementation or a compliance claim.
+Date: 2026-11-15. Status: historical preliminary review.
+
+The earlier implementation was subsequently removed and rebuilt. Current conventions
+and residual limitations are recorded in [implementation decisions](lunar-energy-api-v1-decisions.md).
+This review is retained as design context, not a description of the current code.
 Contract: [lunar-energy-api-v1.md](lunar-energy-api-v1.md).
 
 ## Assessment

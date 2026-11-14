@@ -1,6 +1,8 @@
 # Lunar Energy API — Specification v1
 
-Status: proposed contract supplied by the user on 2026-11-15.
+Status: v1 contract supplied by the user on 2026-11-15.
+The previous screening code was removed; the replacement is documented in
+[implementation decisions](lunar-energy-api-v1-decisions.md).
 This file records its normative requirements; illustrative response values are not
 numerical acceptance fixtures. Open definitions and contradictions are tracked in
 [lunar-energy-api-v1-analysis.md](lunar-energy-api-v1-analysis.md), without silently

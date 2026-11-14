@@ -311,132 +311,126 @@ an Earth globe:
    LOLA DEM) and add visibility charts.
 6. Compare two analysis runs and document uncertainty and limitations.
 
-## Power planning API
+## Lunar Energy API v1
 
-The planning endpoints extend the existing single-epoch `/api/positions` API without
-changing it. They query live Horizons and do not require database queries or new
-migrations. Use `/docs` to submit requests and inspect the input schemas.
+The energy component is rebuilt from the [v1 specification](docs/requirements/lunar-energy-api-v1.md).
+The previous `/api/planning/*` endpoints and their frontend are removed. Existing
+site, terrain, globe and `/api/positions` functionality remains available.
 
-| POST route | Use |
+| Route | Inputs and output |
 |---|---|
-| `/api/planning/analysis` | Compare explicit `points` or a rectangular `grid` over `start`–`end` |
-| `/api/planning/power` | Estimate generation, demand and storage for a point, arrival date and mission duration |
-| `/api/planning/windows` | Find sampled operating intervals satisfying equipment power and optional Earth visibility constraints |
+| `GET /v1/solar/point` | Coordinates and UTC instant → terrain height/slope/aspect, Sun/Earth positions, partial solar visibility and irradiance |
+| `POST /v1/solar/region` | Bbox/polygon/circle, physical grid spacing and period → masked metric grids, ranking and optional time series |
+| `POST /v1/power/mission` | Location, mission period, operating/survival load and panel configuration → panel/battery sizing and simulated SOC |
+| `POST /v1/power/windows` | Location, search period, installed equipment and criteria → battery-supported windows, scores and unsuitable reasons |
 
-For site energy analysis without equipment, use `POST /api/planning/resources`:
+Install `backend/requirements.txt`, prepare the existing LOLA mosaic, then run:
+
+```sh
+cd backend
+.venv/bin/python scripts/prepare_energy.py
+.venv/bin/python -m uvicorn app.main:app --reload
+```
+
+`prepare_energy.py` downloads about 45 MB of pinned NAIF kernels into
+`backend/data/spice/`, verifies SHA-256 hashes, and records provenance. Kernels and
+horizon caches stay on disk and are gitignored. No ephemeris network requests occur
+during energy analysis. The API uses DE440s, the DE440 lunar orientation PCK,
+`MOON_ME_DE440_ME421` frame definitions, and NAIF leap seconds. Missing/corrupt
+kernels or DEM files return structured errors. Restart Vite: its proxy now forwards
+both `/api` and `/v1` to `API_PROXY_TARGET`.
+
+Open **Mission planner** in the top navigation bar. Its modal provides all four
+analysis tasks. Point and region solar analysis require no equipment. Mission sizing
+requires demand because sunlight cannot determine equipment consumption. Elevation,
+slope and aspect come from LOLA; **height_m** is only the sensor/panel height above
+that surface. The modal includes grid heatmaps, ranked cells, energy budgets,
+panel comparisons, SOC/power timelines, warnings, and full JSON download. Closing
+and reopening preserves the form/results. The globe remains mounted underneath.
+
+Example requests:
+
+```sh
+curl 'http://127.0.0.1:8000/v1/solar/point?lat=-89.45&lon=-137.3&height_m=2&time=2026-12-01T12:00:00Z'
+```
 
 ```json
 {
-  "points": [{"lat": -89.45, "lon": 129.2}],
-  "start": "2026-11-14T00:00:00Z",
-  "end": "2026-11-15T00:00:00Z",
-  "step_hours": 6
+  "location": {"lat": -89.45, "lon": -137.3, "height_m": 2},
+  "start": "2026-12-01T00:00:00Z",
+  "duration_hours": 336,
+  "load": {"average_w": 150, "survival_w": 40, "peak_w": 400},
+  "panel": {"mode": "auto", "efficiency": 0.3, "degradation_pct": 10},
+  "assumptions": {"battery_dod": 0.8, "battery_efficiency": 0.95, "margin_pct": 20}
 }
 ```
 
-Alternatively supply `grid` instead of `points`, using the same bounds and counts
-shown below. No load, panel area, efficiency or battery specification is required.
-The API returns Sun/Earth positions, normal and horizontal irradiance (W/m²),
-Earth/Sun visibility, horizontal incident solar energy (Wh/m²), mean irradiance
-and peak sampled irradiance for each point. Peak is the highest sampled value,
-not a refined maximum. Elevation is resolved from local LOLA automatically.
-This describes available sunlight; it does not infer electrical output or equipment
-consumption. Use equipment modes to estimate those separately.
+Submit the JSON body to `/v1/power/mission`; all schemas and other request shapes
+are available at `/docs`. Region periods default to six-hour steps; mission/window
+periods to one hour. The exact final epoch is included, including a shorter last
+interval. Time support is 2020 through 2035 UTC, step range 0.25–24 h, region/window
+span at most 731 days, and mission duration at most 8760 h. Region cell × epoch
+work is capped at 2,000,000 before any expensive terrain calculation. Requests
+remain synchronous: large, uncached regions can take substantial time. The work
+limit is an admission bound, not a latency guarantee or a claim of maximum-size
+production performance. JSON downloads contain complete results; the UI limits
+very large grid/time-series previews to keep the page responsive.
 
-Example equipment-based area analysis body:
+### Terrain and numerical conventions
 
-```json
-{
-  "grid": {"south": -89.5, "north": -89.0, "west": 0, "east": 1, "rows": 2, "columns": 2},
-  "start": "2026-11-14T00:00:00Z",
-  "end": "2026-11-15T00:00:00Z",
-  "step_hours": 6,
-  "equipment": {
-    "load_w": 100,
-    "panel_area_m2": 4,
-    "panel_efficiency": 0.3,
-    "system_efficiency": 0.85,
-    "panel_mode": "horizontal",
-    "battery_wh": 2000,
-    "usable_battery_fraction": 0.8,
-    "minimum_earth_elevation_deg": 2,
-    "require_earth_visibility": true
-  }
-}
-```
+- Source elevation and gradients: original product 81 5 m raster within 87–90°S;
+  global LOLA elsewhere. Heights do not use browser blending or quantization.
+- Terrain horizons: 360 azimuth bins; native 5 m samples within 250 m, prepared
+  50 m polar overview farther away, global LOLA outside polar coverage. Curved
+  surface rays extend to 500 km with dense near-field/log-spaced far-field samples.
+  Profiles are cached per DEM version, coordinates, algorithm and observer height.
+  Missing overview edge pixels use valid global terrain. Invalid global coverage
+  fails rather than becoming a flat horizon. Sites where the finite horizon extent
+  is insufficient are rejected.
+- Solar disk: fixed 0.53° diameter, circular segment over an interpolated straight
+  terrain horizon. Irradiance projects the center vector onto each surface and is
+  clamped nonnegative. This approximation can miss thin ridges/partial-disk effects.
+- Fixed-horizontal panels use the local tangent plane; terrain irradiance uses the
+  DEM normal. Aspect is downslope azimuth, north=0° clockwise; flat aspect=0°.
+- Region cells are anchored in projected meters. South/north polar grids use polar
+  stereographic coordinates; other regions use a centered equidistant cylindrical
+  grid. Requested spacing snaps upward to supported analysis sampling levels
+  (5, 10, 20, 40, 80, 160, 240, 480, 960, 1920 m, and coarser doubles). Outside the
+  native south-pole coverage, the minimum spacing is 1920 m to match global data.
+  These are sampling levels, not a claim that all source DEMs have that resolution.
+- Energy integrates actual interval lengths. Solar power is linearly interpolated;
+  loads are held at interval starts. Custom-load timestamps are inserted into the
+  mission timeline so changes are integrated at their actual times.
+- Mission load is operating/custom power while lit and survival power while dark.
+  Minimum panel sizing includes storage losses and requires net energy balance;
+  battery sizing tracks maximum cumulative deficit, including internal zero crossings.
+  Recommended sizes apply the design margin. Infeasible sizes are null, never infinity.
+- Battery round-trip loss is split equally between charge/discharge. SOC is **usable
+  SOC**: 0% corresponds to the specified DoD floor. All simulations start full.
+  Optional `assumptions.max_charge_w` and `max_discharge_w` model rate limits.
+  Wh alone cannot determine discharge W: missing discharge limits produce a
+  `PEAK_RATE_UNCHECKED` warning instead of an invented peak-rate result.
+- Windows deliver full required operating power even while dark. Outside eligible
+  intervals the survival load applies. SOC proceeds chronologically and is never
+  reset at a candidate window. A zero survival load gives no derived survival
+  darkness limit. Explicit darkness limits still apply. A zero average-margin
+  criterion disables that extra filter; a positive criterion filters by mean solar
+  power margin. Scores clamp every normalized term to [0,1]. Summary window counts
+  and duration describe all qualifying windows, before `max_results` truncation.
+- `auto` evaluates all 5° fixed-tilt/azimuth pairs against the endpoint objective,
+  retaining the best fixed pair for comparison with horizontal and tracking modes.
+  `prefer_simple` excludes full tracking and chooses a fixed mode within tolerance
+  of the best remaining option; otherwise vertical tracking can win. This resolves
+  the specification's otherwise conflicting full-tracking preference rules.
 
-To compare selected sites instead, replace `grid` with
-`"points": [{"lat": -89, "lon": 0}, {"lat": -88, "lon": 1}]`.
-Grid samples include their bounds, in row-major order from south/west. Every point's
-observer elevation is sampled automatically from the installed local LOLA data:
-the original 5 m product 81 raster inside its south-pole coverage, or the coarser
-global LOLA raster elsewhere. Planning inputs accept coordinates only; manual
-`elevation_m` values are rejected. Heights use bilinear interpolation in the source
-raster, without browser quantization or display blending. Each result includes the
-sampled height, dataset, source, resolution, frame, reference radius and version.
-Missing or invalid terrain returns 503; the planner never silently substitutes zero.
-Split grids crossing the antimeridian into separate requests.
+Responses identify actual DEM products and DE440; example labels such as
+`LDEM_80S_20M` are not substituted for installed datasets. Results are engineering
+screening estimates, not validated mission certification. No secondary illumination,
+eclipses, thermal survival prediction, radio link budget or peak-load duration model
+is included. Low-angle results are sensitive to terrain/horizon sampling. See the
+[implementation decisions](docs/requirements/lunar-energy-api-v1-decisions.md).
 
-For `/api/planning/power`, supply `point`, `at`, `duration_hours`, `step_hours` and
-`equipment`. Duration defaults to 24 hours; a single instant cannot determine a
-mission's energy or storage needs. For `/api/planning/windows`, supply `point`,
-`start`, `end`, `step_hours`, `equipment` and `minimum_duration_hours` (default 1).
-These windows indicate solar-powered surface operation at the site, not launch or
-trajectory feasibility.
-
-Each response includes the submitted equipment, assumptions and provenance.
-Samples include Sun/Earth positions, normal and panel-plane irradiance (W/m²),
-electrical generation and net power (W), instantaneous required panel area (m²),
-and constraint status. Required panel area is `null` when there is no incident
-sunlight. Summaries include generated/load energy (Wh), minimum initial usable
-energy, minimum usable storage, nameplate battery size and whether the supplied
-battery is sufficient when initially full. Storage uses the maximum cumulative
-energy drawdown, including interpolated net-power crossings; the minimum initial
-energy assumes sufficient capacity to retain subsequent surplus generation.
-
-Irradiance uses **1361 W/m² at 1 AU**, scaled by the inverse square of Horizons'
-Sun range ([NASA solar irradiance reference](https://data.giss.nasa.gov/modelforce/solar.irradiance/)).
-Horizontal arrays use the sine of solar elevation; `sun_tracking` assumes ideal
-normal incidence while the Sun's center is above the tangent horizon. Electrical
-yield multiplies panel area, panel efficiency and system efficiency. Input load
-must include the user's instruments, heaters and communications equipment.
-
-Energy is integrated using linearly interpolated generation between epochs. A
-window requires power to meet load and, if requested, Earth's elevation to exceed
-the supplied threshold at both endpoints of every included interval. Adjacent
-intervals merge; isolated qualifying samples do not form a window. Batteries do
-not extend operating windows. Boundaries are sampling estimates, not refined event
-times; smaller steps improve temporal resolution but cannot recover terrain effects.
-
-These are **screening estimates**: terrain obstruction, horizon dip, eclipses,
-panel temperature/degradation, battery losses/charge-rate limits and communication
-link budgets are excluded. Battery adequacy is for power only, independently of
-Earth visibility. No thermal survival or travel-energy model is inferred from
-coordinates. Use a terrain-aware engineering analysis before operational decisions.
-
-Inputs require explicit timezones, dates in 1550–2649, increasing ranges up to 366
-days, and finite physical parameters. Requests are limited to **128 point/epoch
-combinations**, with steps between 0.25 and 168 hours. The exact end is always
-included even for a partial final interval. Each combination currently makes two
-serialized Horizons requests, so keep interactive comparisons small. Invalid inputs
-return 422; an upstream failure aborts the request with 502, without partial results.
-
-### Planning interface
-
-Use **Mission planner** in the top navigation bar to open a large modal over the
-globe. Close it with **Close planner**, Escape, or a click on the backdrop. Inputs
-and results stay available when reopening it. The planner opens
-with the current globe coordinates and UTC date. The default **Site solar energy analysis** requires only coordinates and a date
-range; it shows incident energy per square meter and a solar radiation timeline.
-Choose **Equipment energy & battery estimate**, **Compare sites / area**, or
-**Find equipment operating windows** when you want to supply equipment specifications
-and evaluate consumption, batteries or operating constraints. Comparison supports the current custom
-point plus named locations, or a rectangular grid. Click **Run planning analysis**.
-
-Results include a selectable site comparison table, generation-versus-load chart,
-battery requirements, UTC operating windows and an expandable time-sample table
-with Sun/Earth elevation, incident radiation and electrical power. Site summaries
-also show automatically sampled LOLA surface elevation and dataset details. Model assumptions
-are available below the results. Editing an input clears old results; a running
-request can be cancelled. The planner works without WebGL and reports API errors
-inline. Restart the backend to enable the planning POST routes before using it.
+To precompute horizons for known sites, supply a JSON list of Location objects:
+`python scripts/prepare_energy.py --horizons locations.json`. Normal requests reuse
+these profiles and lazily create missing profiles. Changing observer height or the
+DEM/algorithm version creates a different cache entry.

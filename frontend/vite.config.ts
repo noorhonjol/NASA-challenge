@@ -3,7 +3,7 @@ import cesium from 'vite-plugin-cesium'
 import type { PluginOption } from 'vite'
 import { defineConfig } from 'vitest/config'
 
-// Only /api is proxied to the backend; everything else stays with Vite.
+// /api and /v1 are proxied to the backend; everything else stays with Vite.
 // API_PROXY_TARGET exists so the proxy can point at another port when 8000
 // is taken locally; the default matches the documented backend port.
 const apiTarget = process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8000'
@@ -19,6 +19,7 @@ export default defineConfig({
     watch: { usePolling: process.platform === 'win32', interval: 500 },
     proxy: {
       '/api': apiTarget,
+      '/v1': apiTarget,
     },
   },
   test: {
