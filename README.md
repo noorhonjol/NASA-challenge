@@ -323,7 +323,27 @@ migrations. Use `/docs` to submit requests and inspect the input schemas.
 | `/api/planning/power` | Estimate generation, demand and storage for a point, arrival date and mission duration |
 | `/api/planning/windows` | Find sampled operating intervals satisfying equipment power and optional Earth visibility constraints |
 
-Example area analysis body:
+For site energy analysis without equipment, use `POST /api/planning/resources`:
+
+```json
+{
+  "points": [{"lat": -89.45, "lon": 129.2}],
+  "start": "2026-11-14T00:00:00Z",
+  "end": "2026-11-15T00:00:00Z",
+  "step_hours": 6
+}
+```
+
+Alternatively supply `grid` instead of `points`, using the same bounds and counts
+shown below. No load, panel area, efficiency or battery specification is required.
+The API returns Sun/Earth positions, normal and horizontal irradiance (W/m²),
+Earth/Sun visibility, horizontal incident solar energy (Wh/m²), mean irradiance
+and peak sampled irradiance for each point. Peak is the highest sampled value,
+not a refined maximum. Elevation is resolved from local LOLA automatically.
+This describes available sunlight; it does not infer electrical output or equipment
+consumption. Use equipment modes to estimate those separately.
+
+Example equipment-based area analysis body:
 
 ```json
 {
@@ -406,9 +426,11 @@ return 422; an upstream failure aborts the request with 502, without partial res
 Use **Mission planner** in the top navigation bar to open a large modal over the
 globe. Close it with **Close planner**, Escape, or a click on the backdrop. Inputs
 and results stay available when reopening it. The planner opens
-with the current globe coordinates and UTC date. Choose **Mission power estimate**,
-**Compare sites / area**, or **Find equipment operating windows**, then enter your
-schedule and equipment specifications. Comparison supports the current custom
+with the current globe coordinates and UTC date. The default **Site solar energy analysis** requires only coordinates and a date
+range; it shows incident energy per square meter and a solar radiation timeline.
+Choose **Equipment energy & battery estimate**, **Compare sites / area**, or
+**Find equipment operating windows** when you want to supply equipment specifications
+and evaluate consumption, batteries or operating constraints. Comparison supports the current custom
 point plus named locations, or a rectangular grid. Click **Run planning analysis**.
 
 Results include a selectable site comparison table, generation-versus-load chart,

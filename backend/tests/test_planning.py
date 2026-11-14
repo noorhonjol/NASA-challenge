@@ -99,13 +99,13 @@ def test_each_grid_point_uses_its_own_lola_height(sky):
     assert all(height == lat+lon for lat, lon, at, height in sky[1])
 
 
-@pytest.mark.parametrize("route", ["power", "windows", "analysis"])
+@pytest.mark.parametrize("route", ["power", "windows", "analysis", "resources"])
 def test_missing_lola_returns_503_before_horizons(sky, monkeypatch, route):
     from app.terrain import TerrainUnavailable
     def unavailable(*args):
         raise TerrainUnavailable("Local LOLA data missing")
     monkeypatch.setattr("app.planning.surface_elevation", unavailable)
-    payload = {"equipment": EQUIPMENT}
+    payload = {} if route == "resources" else {"equipment": EQUIPMENT}
     if route == "power":
         payload.update(point=POINT, at=SPAN["start"])
     elif route == "windows":
@@ -120,5 +120,43 @@ def test_missing_lola_returns_503_before_horizons(sky, monkeypatch, route):
 
 def test_manual_planner_elevation_is_rejected(sky):
     response = client.post("/api/planning/power", json={"point": {**POINT, "elevation_m": 999}, "at": SPAN["start"], "equipment": EQUIPMENT})
+    assert response.status_code == 422
+    assert not sky[1]
+
+
+def test_resource_analysis_needs_no_equipment(sky):
+    sky[0][:] = [30]
+    response = client.post("/api/planning/resources", json={**SPAN, "points": [POINT]})
+    assert response.status_code == 200
+    body = response.json()
+    assert "equipment" not in body
+    result = body["results"][0]
+    assert result["point"]["elevation_m"] == -89
+    assert result["summary"]["horizontal_solar_energy_wh_m2"] == pytest.approx(2722)
+    assert result["summary"]["mean_horizontal_irradiance_w_m2"] == pytest.approx(680.5)
+    assert result["samples"][0]["horizontal_irradiance_w_m2"] == pytest.approx(680.5)
+    assert result["samples"][0]["earth_visible"]
+    assert "load_w" not in result["samples"][0]
+    assert "generated_power_w" not in result["samples"][0]
+    assert "minimum_nameplate_battery_wh" not in result["summary"]
+
+
+def test_resource_grid_darkness_and_partial_interval(sky):
+    sky[0][:] = [-5]
+    response = client.post("/api/planning/resources", json={**SPAN, "step_hours": 3, "grid": {"south": -90, "north": -89, "west": 0, "east": 1}})
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert len(results) == 4
+    for result in results:
+        assert result["summary"]["horizontal_solar_energy_wh_m2"] == 0
+        assert result["summary"]["duration_hours"] == 4
+        assert len(result["samples"]) == 3
+        assert not result["samples"][0]["sun_visible"]
+    assert all(height == lat+lon for lat, lon, at, height in sky[1])
+
+
+@pytest.mark.parametrize("change", [{"points": [POINT]*64}, {"end": SPAN["start"]}, {"equipment": EQUIPMENT}])
+def test_resource_validation_before_ephemeris(sky, change):
+    response = client.post("/api/planning/resources", json={**SPAN, "points": [POINT], **change})
     assert response.status_code == 422
     assert not sky[1]

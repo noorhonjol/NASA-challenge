@@ -88,6 +88,20 @@ export type PlanningResponse = Partial<PlanningResult> & {
 };
 
 export async function fetchPlanning(mode: "power" | "analysis" | "windows", payload: object, signal?: AbortSignal): Promise<PlanningResponse> {
+  return requestPlanning<PlanningResponse>(mode, payload, signal);
+}
+
+export type ResourceResult = {
+  point: PlanningResult["point"]; elevation: PlanningResult["elevation"];
+  samples: (Positions & {solar_irradiance_normal_w_m2: number; horizontal_irradiance_w_m2: number; sun_visible: boolean; earth_visible: boolean})[];
+  summary: {duration_hours: number; horizontal_solar_energy_wh_m2: number; mean_horizontal_irradiance_w_m2: number; peak_sampled_horizontal_irradiance_w_m2: number};
+};
+export type ResourceResponse = {results: ResourceResult[]; source: string; solar_reference_url: string; assumptions: string[]};
+export function fetchResources(payload: object, signal?: AbortSignal): Promise<ResourceResponse> {
+  return requestPlanning<ResourceResponse>("resources", payload, signal);
+}
+
+async function requestPlanning<T>(mode: string, payload: object, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`/api/planning/${mode}`, {
     method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload), signal,
   });

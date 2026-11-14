@@ -69,6 +69,7 @@ test("opens a modal from navigation and preserves inputs after closing", async (
   fireEvent.click(screen.getByRole("button", {name: "Mission planner"}));
   expect(screen.getByRole("region", {name: "Mission power planner"})).toBeInTheDocument();
   expect(screen.getByRole("dialog", {name: "Mission planner"})).toHaveAttribute("open");
+  fireEvent.change(screen.getByLabelText("Planning task"), {target: {value: "power"}});
   fireEvent.change(screen.getByLabelText("Continuous load (W)"), {target: {value: "250"}});
   fireEvent.click(screen.getByRole("button", {name: "Close planner"}));
   expect(screen.queryByRole("region", {name: "Mission power planner"})).not.toBeInTheDocument();

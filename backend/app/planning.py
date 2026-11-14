@@ -77,10 +77,9 @@ class Range(Input):
         return [min(self.start + timedelta(hours=i*self.step_hours), self.end) for i in range(count+1)]
 
 
-class AnalysisRequest(Range):
+class ResourceRequest(Range):
     points: list[Point] | None = Field(default=None, min_length=1, max_length=64)
     grid: Grid | None = None
-    equipment: Equipment
 
     @model_validator(mode="after")
     def check_work(self):
@@ -92,6 +91,10 @@ class AnalysisRequest(Range):
 
     def locations(self):
         return self.points if self.points is not None else self.grid.points()
+
+
+class AnalysisRequest(ResourceRequest):
+    equipment: Equipment
 
 
 class PowerRequest(Input):
@@ -118,14 +121,24 @@ ASSUMPTIONS = [
 ]
 
 
-def sample_power(position, equipment):
+def solar_resource(position):
     sun = position["sun"]
     distance = sun.get("distance_km")
     if distance is None or not math.isfinite(distance) or distance <= 0:
         from .horizons import HorizonsError
         raise HorizonsError("Horizons returned no usable Sun range for power estimation.")
     irradiance = 1361 * (149597870.7 / distance)**2
-    factor = (1 if equipment.panel_mode == "sun_tracking" else math.sin(math.radians(sun["elevation_deg"]))) if sun["elevation_deg"] > 0 else 0
+    horizontal = irradiance * max(0, math.sin(math.radians(sun["elevation_deg"])))
+    return {**position, "solar_irradiance_normal_w_m2": irradiance,
+            "horizontal_irradiance_w_m2": horizontal,
+            "sun_visible": sun["elevation_deg"] > 0,
+            "earth_visible": position["earth"]["elevation_deg"] > 0}
+
+
+def sample_power(position, equipment):
+    resource = solar_resource(position)
+    irradiance = resource["solar_irradiance_normal_w_m2"]
+    factor = (1 if equipment.panel_mode == "sun_tracking" else math.sin(math.radians(position["sun"]["elevation_deg"]))) if resource["sun_visible"] else 0
     panel_flux = irradiance * factor
     yield_per_m2 = panel_flux * equipment.panel_efficiency * equipment.system_efficiency
     generated = yield_per_m2 * equipment.panel_area_m2
@@ -181,3 +194,27 @@ async def analyze(point, epochs, equipment):
 def metadata(equipment):
     return {"source": "JPL Horizons", "solar_reference_url": "https://data.giss.nasa.gov/modelforce/solar.irradiance/",
             "equipment": equipment.model_dump(), "assumptions": ASSUMPTIONS}
+
+
+async def analyze_resources(point, epochs):
+    elevation = await run_in_threadpool(surface_elevation, point.lat, point.lon)
+    samples = [solar_resource(await positions(point.lat, point.lon, elevation["elevation_m"], at)) for at in epochs]
+    energy = sum((a["horizontal_irradiance_w_m2"] + b["horizontal_irradiance_w_m2"])/2
+                 * (epochs[i+1]-epochs[i]).total_seconds()/3600
+                 for i, (a, b) in enumerate(zip(samples, samples[1:])))
+    duration = (epochs[-1]-epochs[0]).total_seconds()/3600
+    return {"point": {**point.model_dump(), "elevation_m": elevation["elevation_m"]},
+            "elevation": elevation, "samples": samples,
+            "summary": {"duration_hours": duration, "horizontal_solar_energy_wh_m2": energy,
+                        "mean_horizontal_irradiance_w_m2": energy/duration,
+                        "peak_sampled_horizontal_irradiance_w_m2": max(s["horizontal_irradiance_w_m2"] for s in samples)}}
+
+
+def resource_metadata():
+    return {"source": "JPL Horizons", "solar_reference_url": "https://data.giss.nasa.gov/modelforce/solar.irradiance/",
+            "assumptions": [ASSUMPTIONS[0], ASSUMPTIONS[1],
+                "1361 W/m2 at 1 AU, scaled by Horizons Sun range. Horizontal incidence uses sine of solar elevation.",
+                "Normal irradiance is the unobstructed beam flux at the Sun distance; horizontal irradiance is zero when the Sun is below the horizon.",
+                "Incident solar energy per square meter, not electrical output or equipment demand. No load, panel efficiency or battery assumed.",
+                "Energy integrates linearly interpolated irradiance between samples; short events can be missed.",
+                "Earth visibility uses its center above the tangent horizon; no terrain obstruction or radio link budget."]}

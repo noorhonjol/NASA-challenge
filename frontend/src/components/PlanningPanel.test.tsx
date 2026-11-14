@@ -9,7 +9,11 @@ const response = {point: {...point, elevation_m: 100}, elevation: {dataset: "LOL
   samples: [sample, {...sample, at_utc: "2026-11-15T00:00:00Z", required_panel_area_m2: null}], operating_windows: [],
   summary: {generated_energy_wh: 1920, load_energy_wh: 2400, net_energy_wh: -480, minimum_initial_usable_energy_wh: 480,
     minimum_nameplate_battery_wh: 600, battery_sufficient_if_initially_full: true}};
-const mount = () => render(<PlanningPanel point={point} at="2026-11-14T00:00" sites={[]} onClose={vi.fn()}/>);
+const mount = () => {
+  const view = render(<PlanningPanel point={point} at="2026-11-14T00:00" sites={[]} onClose={vi.fn()}/>);
+  fireEvent.change(screen.getByLabelText("Planning task"), {target: {value: "power"}});
+  return view;
+};
 const run = () => fireEvent.click(screen.getByRole("button", {name: "Run planning analysis"}));
 afterEach(() => {cleanup(); vi.unstubAllGlobals();});
 
@@ -71,4 +75,26 @@ test("cancelling aborts the request and restores submission", () => {
   fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
   expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
   expect(screen.getByRole("button", {name: "Run planning analysis"})).toBeEnabled();
+});
+
+
+test("default site analysis requires no equipment and displays incident energy", async () => {
+  const resourceSample = {...sample, sun: {elevation_deg: 30, azimuth_deg: 120}, earth: {elevation_deg: 5, azimuth_deg: 10},
+    solar_irradiance_normal_w_m2: 1361, horizontal_irradiance_w_m2: 680.5, earth_visible: true};
+  const fetch = vi.fn().mockResolvedValue({ok: true, json: async () => ({source: "JPL Horizons", assumptions: [], solar_reference_url: "https://example.com", results: [{
+    point: {...point, elevation_m: 100}, elevation: response.elevation,
+    samples: [resourceSample, {...resourceSample, at_utc: "2026-11-15T00:00:00Z"}],
+    summary: {duration_hours: 24, horizontal_solar_energy_wh_m2: 16332, mean_horizontal_irradiance_w_m2: 680.5, peak_sampled_horizontal_irradiance_w_m2: 680.5},
+  }]})});
+  vi.stubGlobal("fetch", fetch);
+  render(<PlanningPanel point={point} at="2026-11-14T00:00" sites={[]} onClose={vi.fn()}/>);
+  expect(screen.queryByLabelText("Continuous load (W)")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Solar panel area (m²)")).not.toBeInTheDocument();
+  run();
+  expect(await screen.findByRole("region", {name: "Site energy results"})).toBeInTheDocument();
+  expect(fetch.mock.calls[0][0]).toBe("/api/planning/resources");
+  const payload = JSON.parse(fetch.mock.calls[0][1].body);
+  expect(payload).not.toHaveProperty("equipment");
+  expect(payload.points).toEqual([point]);
+  expect(screen.getByText("Solar energy (Wh/m²)")).toBeInTheDocument();
 });

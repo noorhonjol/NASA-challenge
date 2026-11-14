@@ -20,11 +20,14 @@ propulsion energy, or certify that a mission can survive or communicate.
 
 ## 2. Proposed first-release scope
 
-1. Analyze one lunar point from a selected start time over a mission duration.
-2. Compare multiple points or a rectangular coordinate grid over a start/end range.
-3. Search a date range for solar-powered operating intervals matching equipment
+1. Analyze available incident sunlight for points or a grid over a date range,
+   without requiring equipment power, panel area or battery inputs. Make this the
+   default planner mode. Equipment demand cannot be inferred from location/time.
+2. Estimate electrical generation and storage separately using user-supplied equipment.
+3. Compare multiple points or a rectangular coordinate grid over a start/end range.
+4. Search a date range for solar-powered operating intervals matching equipment
    specifications and optional Earth visibility constraints.
-4. Display results in a large modal opened from the persistent navigation bar.
+5. Display results in a large modal opened from the persistent navigation bar.
 
 Existing globe exploration and single-point Sun/Earth queries must remain usable.
 The first release uses the existing ephemeris service. Terrain-aware visibility is
@@ -186,6 +189,7 @@ Proposed API responsibilities:
 
 | Endpoint | Purpose |
 |---|---|
+| POST /api/planning/resources | Points/grid and date range → incident sunlight, energy per m² and Sun/Earth positions; no equipment inputs |
 | POST /api/planning/power | Point, start date, mission duration and equipment → mission power screening |
 | POST /api/planning/analysis | Points/grid, date range and equipment → comparable per-point results |
 | POST /api/planning/windows | Point, range, equipment and duration threshold → qualifying intervals |
@@ -220,8 +224,9 @@ export and collaborative comparisons are future scope unless requested separatel
 
 ## 9. Acceptance criteria
 
-1. A user opens the planner from the navbar as a modal, enters coordinates, date,
-   duration and equipment, and receives unit-labeled power and energy results. The
+1. A user opens the planner from the navbar as a modal, enters coordinates and a
+   date range without equipment inputs, and receives solar irradiance and incident
+   energy per m². Equipment demand and battery estimates are a separate mode. The
    backend samples local LOLA elevation automatically; no manual height is required.
 2. The same configuration can compare at least two sites or a 2×2 grid over an
    increasing date range, with a distinct summary and timeline for each point.

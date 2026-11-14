@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from ..terrain import TerrainUnavailable
 from ..horizons import HorizonsError
-from ..planning import AnalysisRequest, PowerRequest, WindowRequest, Range, analyze, metadata
+from ..planning import AnalysisRequest, PowerRequest, WindowRequest, Range, analyze, metadata, ResourceRequest, analyze_resources, resource_metadata
 from datetime import timedelta
 
 router = APIRouter(prefix="/api/planning", tags=["planning"])
@@ -42,6 +42,20 @@ async def equipment_windows(request: WindowRequest):
         result = await analyze(request.point, request.epochs(), request.equipment)
         result["operating_windows"] = [w for w in result["operating_windows"] if w["duration_hours"] >= request.minimum_duration_hours]
         return {**metadata(request.equipment), **result}
+    except TerrainUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except HorizonsError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@router.post("/resources")
+async def site_resources(request: ResourceRequest):
+    """Analyze incident solar energy from coordinates and dates, without equipment."""
+    try:
+        results = []
+        for point in request.locations():
+            results.append(await analyze_resources(point, request.epochs()))
+        return {**resource_metadata(), "results": results}
     except TerrainUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
     except HorizonsError as exc:

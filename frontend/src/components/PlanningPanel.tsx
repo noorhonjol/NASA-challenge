@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchPlanning, type Equipment, type PlanningPoint, type PlanningResponse, type PlanningResult, type Site } from "../api/client";
+import { fetchResources, type ResourceResponse, fetchPlanning, type Equipment, type PlanningPoint, type PlanningResponse, type PlanningResult, type Site } from "../api/client";
 
-type Mode = "power" | "analysis" | "windows";
+type Mode = "resources" | "power" | "analysis" | "windows";
 const utc = (value: string) => new Date(value).toISOString().replace("T", " ").replace(".000Z", " UTC");
 const n = (value: number) => value.toLocaleString(undefined, {maximumFractionDigits: 2});
 
 export function PlanningPanel({point, at, sites, onClose}: {point: PlanningPoint; at: string; sites: Site[]; onClose: () => void}) {
   const [initialAt] = useState(() => Number.isFinite(Date.parse(`${at}:00Z`)) ? at : new Date().toISOString().slice(0, 16));
-  const [mode, setMode] = useState<Mode>("power");
+  const [mode, setMode] = useState<Mode>("resources");
   const [area, setArea] = useState("points");
   const [selectedSites, setSelectedSites] = useState<number[]>([]);
   const [result, setResult] = useState<PlanningResponse | null>(null);
+  const [resources, setResources] = useState<ResourceResponse | null>(null);
   const [active, setActive] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -21,7 +22,7 @@ export function PlanningPanel({point, at, sites, onClose}: {point: PlanningPoint
   async function submit(form: HTMLFormElement) {
     const data = new FormData(form);
     const number = (key: string) => Number(data.get(key));
-    const equipment: Equipment = {
+    const equipment: Equipment | undefined = mode === "resources" ? undefined : {
       load_w: number("load"), panel_area_m2: number("panel"), panel_efficiency: number("efficiency")/100,
       system_efficiency: number("system")/100, panel_mode: data.get("tracking") as Equipment["panel_mode"],
       battery_wh: number("battery"), usable_battery_fraction: number("usable")/100,
@@ -35,19 +36,24 @@ export function PlanningPanel({point, at, sites, onClose}: {point: PlanningPoint
       rows: number("rows"), columns: number("columns")};
     const points = [location, ...sites.filter(site => selectedSites.includes(site.id)).map(site => ({lat: site.lat_deg, lon: site.lon_deg}))];
     const duration = mode === "power" ? number("duration") : (Date.parse(end)-Date.parse(start))/3600000;
-    const combinations = (Math.ceil(duration/step_hours)+1) * (mode === "analysis" ? area === "grid" ? grid.rows*grid.columns : points.length : 1);
+    const combinations = (Math.ceil(duration/step_hours)+1) * ((mode === "analysis" || mode === "resources") ? area === "grid" ? grid.rows*grid.columns : points.length : 1);
     if (duration <= 0 || duration > 8784 || !Number.isFinite(duration)) {setError("Choose an end after the start, within 366 days."); return;}
     if (combinations > 128) {setError(`This selection needs ${combinations} point/time samples. Maximum 128: increase the step, shorten the range or reduce the grid/sites.`); return;}
-    if (mode === "analysis" && area === "grid" && (grid.south >= grid.north || grid.west >= grid.east)) {setError("Grid south must be below north, and west below east. Split areas crossing the antimeridian."); return;}
+    if ((mode === "analysis" || mode === "resources") && area === "grid" && (grid.south >= grid.north || grid.west >= grid.east)) {setError("Grid south must be below north, and west below east. Split areas crossing the antimeridian."); return;}
     controller.current?.abort();
     const request = new AbortController(); controller.current = request;
-    setBusy(true); setError(""); setResult(null); setActive(0);
+    setBusy(true); setError(""); setResult(null); setResources(null); setActive(0);
     const payload = mode === "power" ? {point: location, at: start, duration_hours: duration, step_hours, equipment}
       : mode === "windows" ? {point: location, start, end, step_hours, equipment, minimum_duration_hours: number("minimum")}
       : {start, end, step_hours, equipment, ...(area === "grid" ? {grid} : {points})};
     try {
-      const response = await fetchPlanning(mode, payload, request.signal);
-      if (!request.signal.aborted) setResult(response);
+      if (mode === "resources") {
+        const response = await fetchResources({start, end, step_hours, ...(area === "grid" ? {grid} : {points})}, request.signal);
+        if (!request.signal.aborted) setResources(response);
+      } else {
+        const response = await fetchPlanning(mode, payload, request.signal);
+        if (!request.signal.aborted) setResult(response);
+      }
     } catch (err) {if (!request.signal.aborted) setError(err instanceof Error ? err.message : String(err));}
     finally {if (!request.signal.aborted) setBusy(false);}
   }
@@ -59,13 +65,13 @@ export function PlanningPanel({point, at, sites, onClose}: {point: PlanningPoint
     <div className="panel-heading"><div><p className="eyebrow">MISSION SCREENING</p><h1>Power & operating windows</h1></div><button type="button" className="panel-toggle" onClick={onClose}>Close planner</button></div>
     <div className="planning-content">
       <p>Compare solar power and direct-to-Earth visibility. All dates and results use UTC.</p>
-      <form onSubmit={event => {event.preventDefault(); void submit(event.currentTarget);}} onChange={() => {controller.current?.abort(); setBusy(false); setResult(null); setError("");}}>
-        <label>Planning task<select value={mode} onChange={event => setMode(event.target.value as Mode)}><option value="power">Mission power estimate</option><option value="analysis">Compare sites / area</option><option value="windows">Find equipment operating windows</option></select></label>
+      <form onSubmit={event => {event.preventDefault(); void submit(event.currentTarget);}} onChange={() => {controller.current?.abort(); setBusy(false); setResult(null); setResources(null); setError("");}}>
+        <label>Planning task<select value={mode} onChange={event => setMode(event.target.value as Mode)}><option value="resources">Site solar energy analysis · no equipment needed</option><option value="power">Equipment energy & battery estimate</option><option value="analysis">Compare sites / area</option><option value="windows">Find equipment operating windows</option></select></label>
         <fieldset><legend>Location</legend><div className="planning-fields">
           {field("Planner latitude (° north)", "lat", point.lat, -90, 90)}
           {field("Planner longitude (° east)", "lon", point.lon, -180, 180)}
         </div><p>Elevation is determined automatically from local LOLA data for each coordinate: native 5 m south-pole mosaic within coverage, coarser global LOLA elsewhere.</p>
-        {mode === "analysis" && <>
+        {(mode === "analysis" || mode === "resources") && <>
           <label>Compare using<select value={area} onChange={event => setArea(event.target.value)}><option value="points">This point + named locations</option><option value="grid">Rectangular grid</option></select></label>
           {area === "points" ? <div className="planning-sites">{sites.length ? sites.map(site => <label className="planning-check" key={site.id}><input type="checkbox" checked={selectedSites.includes(site.id)} onChange={event => setSelectedSites(ids => event.target.checked ? [...ids, site.id] : ids.filter(id => id !== site.id))}/>{site.name}</label>) : <p>No named locations available. Use a grid to compare custom locations.</p>}</div>
             : <div className="planning-fields">{field("South bound (°)", "south", -89.5, -90, 90)}{field("North bound (°)", "north", -89, -90, 90)}{field("West bound (°)", "west", 0, -180, 180)}{field("East bound (°)", "east", 1, -180, 180)}{field("Grid rows", "rows", 2, 2, 8, 1)}{field("Grid columns", "columns", 2, 2, 8, 1)}</div>}
@@ -78,7 +84,7 @@ export function PlanningPanel({point, at, sites, onClose}: {point: PlanningPoint
           {field("Sampling step (hours)", "step", 6, 0.25, 168)}
           {mode === "windows" && field("Minimum window (hours)", "minimum", 1, 0.25, 8784)}
         </div></fieldset>
-        <fieldset><legend>Equipment & power</legend><div className="planning-fields">
+        {mode !== "resources" && <fieldset><legend>Equipment & power</legend><div className="planning-fields">
           {field("Continuous load (W)", "load", 100, 0.01, 1e7)}
           {field("Solar panel area (m²)", "panel", 4, 0.001, 1e6)}
           {field("Panel efficiency (%)", "efficiency", 30, 0.01, 100)}
@@ -88,12 +94,13 @@ export function PlanningPanel({point, at, sites, onClose}: {point: PlanningPoint
           <label>Panel orientation<select name="tracking"><option value="horizontal">Horizontal</option><option value="sun_tracking">Ideal Sun tracking</option></select></label>
           {field("Minimum Earth elevation (°)", "earth", 0, 0, 90)}
         </div><label className="planning-check"><input type="checkbox" name="communication" defaultChecked/>Require Earth visibility for operating windows</label>
-        <p>Include heaters, instruments and communications in the continuous load.</p></fieldset>
+        <p>Include heaters, instruments and communications in the continuous load.</p></fieldset>}
         <p>Up to 128 point/time samples. Live Horizons queries may take several minutes. Terrain shadows, eclipses, thermal effects and communication link budgets are excluded.</p>
         <div className="planning-actions"><button className="planning-run" disabled={busy} type="submit">{busy ? "Calculating…" : "Run planning analysis"}</button>{busy && <button type="button" onClick={() => {controller.current?.abort(); setBusy(false);}}>Cancel</button>}</div>
       </form>
       {busy && <p role="status">Querying JPL Horizons for each point and time…</p>}
       {error && <p role="alert">{error}</p>}
+      {resources && <ResourceResults data={resources} active={active} onSelect={setActive}/>}
       {result && <section aria-label="Planning results" aria-live="polite"><h2>Analysis results · {result.source}</h2>
         <div className="planning-table"><table><caption>Site comparison · select a row to inspect</caption><thead><tr><th>Location (lat, lon)</th><th>LOLA elevation (m)</th><th>Solar energy (Wh)</th><th>Load (Wh)</th><th>Battery needed (Wh)</th><th>Supplied battery</th></tr></thead><tbody>{results.map((item, i) => <tr key={i} className={active === i ? "is-selected" : ""}><th><button type="button" onClick={() => setActive(i)} aria-pressed={active === i}>{n(item.point.lat)}°, {n(item.point.lon)}°</button></th><td>{n(item.point.elevation_m)}</td><td>{n(item.summary.generated_energy_wh)}</td><td>{n(item.summary.load_energy_wh)}</td><td>{n(item.summary.minimum_nameplate_battery_wh)}</td><td>{item.summary.battery_sufficient_if_initially_full ? "Sufficient if full" : "Insufficient"}</td></tr>)}</tbody></table></div>
         {results[active] && <ResultDetails result={results[active]}/>}
@@ -124,4 +131,28 @@ function ResultDetails({result}: {result: PlanningResult}) {
     {result.operating_windows.length ? <ul className="planning-windows">{result.operating_windows.map(window => <li key={window.start}>{utc(window.start)} → {utc(window.end)}<strong>{n(window.duration_hours)} hours</strong></li>)}</ul> : <p className="banner">No operating windows meet your constraints at this sampling resolution. Try another site, date range, equipment setup or smaller sampling step.</p>}
     <details><summary>Inspect {samples.length} time samples</summary><div className="planning-table"><table><caption>UTC positions and electrical power</caption><thead><tr><th>Time (UTC)</th><th>Sun elevation</th><th>Earth elevation</th><th>Panel flux (W/m²)</th><th>Generation (W)</th><th>Net (W)</th><th>Required panel (m²)</th><th>Constraints met</th></tr></thead><tbody>{samples.map(sample => <tr key={sample.at_utc}><th>{utc(sample.at_utc)}</th><td>{n(sample.sun.elevation_deg)}°</td><td>{n(sample.earth.elevation_deg)}°</td><td>{n(sample.panel_irradiance_w_m2)}</td><td>{n(sample.generated_power_w)}</td><td>{n(sample.net_power_w)}</td><td>{sample.required_panel_area_m2 === null ? "No sunlight" : n(sample.required_panel_area_m2)}</td><td>{sample.meets_operating_constraints ? "Yes" : "No"}</td></tr>)}</tbody></table></div></details>
   </>;
+}
+
+
+function ResourceResults({data, active, onSelect}: {data: ResourceResponse; active: number; onSelect: (index: number) => void}) {
+  const site = data.results[active];
+  return <section aria-label="Site energy results" aria-live="polite">
+    <h2>Site solar energy · {data.source}</h2>
+    <p>Available incident sunlight per square meter. Electrical generation depends on your panel area and efficiency; equipment consumption is a separate analysis.</p>
+    <div className="planning-table"><table><caption>Compare available solar energy</caption><thead><tr><th>Location</th><th>LOLA elevation (m)</th><th>Solar energy (Wh/m²)</th><th>Mean radiation (W/m²)</th><th>Peak sampled radiation (W/m²)</th></tr></thead>
+      <tbody>{data.results.map((item, i) => <tr key={i} className={active === i ? "is-selected" : ""}><th><button type="button" aria-pressed={active === i} onClick={() => onSelect(i)}>{n(item.point.lat)}°, {n(item.point.lon)}°</button></th><td>{n(item.point.elevation_m)}</td><td>{n(item.summary.horizontal_solar_energy_wh_m2)}</td><td>{n(item.summary.mean_horizontal_irradiance_w_m2)}</td><td>{n(item.summary.peak_sampled_horizontal_irradiance_w_m2)}</td></tr>)}</tbody></table></div>
+    {site && <>
+      <p>LOLA source: {site.elevation.dataset} · {site.elevation.frame}. Energy is incident on a horizontal surface over {n(site.summary.duration_hours)} hours.</p>
+      <figure className="planning-chart"><figcaption>Horizontal solar radiation (W/m²)</figcaption><svg viewBox="0 0 640 180" role="img" aria-label="Horizontal solar radiation over time; exact values are in the time sample table.">
+        <line x1="40" y1="150" x2="600" y2="150" stroke="#607389"/>
+        <polyline fill="none" stroke="#f6ce70" strokeWidth="3" points={site.samples.map(sample => {
+          const elapsed = Date.parse(sample.at_utc)-Date.parse(site.samples[0].at_utc);
+          const duration = Math.max(1, Date.parse(site.samples.at(-1)!.at_utc)-Date.parse(site.samples[0].at_utc));
+          return `${40+560*elapsed/duration},${150-120*sample.horizontal_irradiance_w_m2/Math.max(1, site.summary.peak_sampled_horizontal_irradiance_w_m2)}`;
+        }).join(" ")}/><text x="0" y="30">{n(site.summary.peak_sampled_horizontal_irradiance_w_m2)}</text><text x="20" y="150">0</text><text x="40" y="175">Start</text><text x="570" y="175">End</text>
+      </svg><p>{utc(site.samples[0].at_utc)} → {utc(site.samples.at(-1)!.at_utc)}</p></figure>
+      <div className="planning-table"><table><caption>Solar radiation and Sun/Earth positions · UTC</caption><thead><tr><th>Time</th><th>Sun elevation</th><th>Sun azimuth</th><th>Earth elevation</th><th>Earth azimuth</th><th>Normal radiation (W/m²)</th><th>Horizontal radiation (W/m²)</th><th>Earth visible</th></tr></thead><tbody>{site.samples.map(sample => <tr key={sample.at_utc}><th>{utc(sample.at_utc)}</th><td>{n(sample.sun.elevation_deg)}°</td><td>{n(sample.sun.azimuth_deg)}°</td><td>{n(sample.earth.elevation_deg)}°</td><td>{n(sample.earth.azimuth_deg)}°</td><td>{n(sample.solar_irradiance_normal_w_m2)}</td><td>{n(sample.horizontal_irradiance_w_m2)}</td><td>{sample.earth_visible ? "Yes" : "No"}</td></tr>)}</tbody></table></div>
+    </>}
+    <details><summary>Model assumptions & sources</summary><ul>{data.assumptions.map(text => <li key={text}>{text}</li>)}</ul><a href={data.solar_reference_url}>Solar irradiance reference</a></details>
+  </section>;
 }
