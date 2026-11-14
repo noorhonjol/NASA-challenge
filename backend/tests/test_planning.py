@@ -12,11 +12,12 @@ POINT = {"lat": -89, "lon": 0}
 
 @pytest.fixture
 def sky(monkeypatch):
+    monkeypatch.setattr("app.planning.surface_elevation", lambda lat, lon: {"elevation_m": lat + lon, "dataset": "LOLA fixture"})
     elevations = [90, 90, 90]
     calls = []
     async def fake(lat, lon, elevation_m, at):
         index = len(calls) % len(elevations)
-        calls.append((lat, lon, at))
+        calls.append((lat, lon, at, elevation_m))
         return {"at_utc": at.isoformat(), "sun": {"elevation_deg": elevations[index], "azimuth_deg": 0, "distance_km": 149597870.7}, "earth": {"elevation_deg": 5}}
     monkeypatch.setattr("app.planning.positions", fake)
     return elevations, calls
@@ -48,7 +49,7 @@ def test_grid_includes_bounds_and_final_partial_interval(sky):
     assert r.status_code == 200
     results = r.json()["results"]
     assert len(results) == 4
-    assert results[-1]["point"] == {**POINT, "lon": 1, "elevation_m": 0}
+    assert results[-1]["point"] == {**POINT, "lon": 1, "elevation_m": -88}
     assert results[0]["summary"]["duration_hours"] == 4
     assert len(sky[1]) == 12
 
@@ -81,8 +82,43 @@ def test_validation_before_upstream(sky, change):
     assert not sky[1]
 
 
-def test_upstream_failure(monkeypatch):
+def test_upstream_failure(monkeypatch, sky):
     async def fail(*args):
         raise HorizonsError("unavailable")
     monkeypatch.setattr("app.planning.positions", fail)
     assert client.post("/api/planning/windows", json={**SPAN, "point": POINT, "equipment": EQUIPMENT}).status_code == 502
+
+
+def test_each_grid_point_uses_its_own_lola_height(sky):
+    response = client.post("/api/planning/analysis", json={**SPAN, "grid": {"south": -90, "north": -89, "west": 0, "east": 1}, "equipment": EQUIPMENT})
+    assert response.status_code == 200
+    for result in response.json()["results"]:
+        point = result["point"]
+        assert point["elevation_m"] == point["lat"] + point["lon"]
+        assert result["elevation"]["dataset"] == "LOLA fixture"
+    assert all(height == lat+lon for lat, lon, at, height in sky[1])
+
+
+@pytest.mark.parametrize("route", ["power", "windows", "analysis"])
+def test_missing_lola_returns_503_before_horizons(sky, monkeypatch, route):
+    from app.terrain import TerrainUnavailable
+    def unavailable(*args):
+        raise TerrainUnavailable("Local LOLA data missing")
+    monkeypatch.setattr("app.planning.surface_elevation", unavailable)
+    payload = {"equipment": EQUIPMENT}
+    if route == "power":
+        payload.update(point=POINT, at=SPAN["start"])
+    elif route == "windows":
+        payload.update(point=POINT, **SPAN)
+    else:
+        payload.update(points=[POINT], **SPAN)
+    response = client.post(f"/api/planning/{route}", json=payload)
+    assert response.status_code == 503
+    assert "LOLA" in response.json()["detail"]
+    assert not sky[1]
+
+
+def test_manual_planner_elevation_is_rejected(sky):
+    response = client.post("/api/planning/power", json={"point": {**POINT, "elevation_m": 999}, "at": SPAN["start"], "equipment": EQUIPMENT})
+    assert response.status_code == 422
+    assert not sky[1]

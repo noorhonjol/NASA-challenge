@@ -218,3 +218,61 @@ def hillshade(level, x, y):
         return _hillshade(str(root), (root / "manifest.json").stat().st_mtime_ns, level, x, y)
     except OSError as exc:
         raise TerrainUnavailable("Local terrain files are unavailable") from exc
+
+
+def surface_elevation(latitude: float, longitude: float):
+    """Sample science terrain, never the blended/quantized browser surface.
+
+    Native product 81 takes precedence within its circular coverage; elsewhere
+    use the local global LOLA raster. Missing native data is not silently replaced.
+    """
+    import math
+    import rasterio
+    from rasterio.windows import Window
+
+    try:
+        m = manifest()
+        root = data_root()
+        x, y = south_polar_xy(latitude, longitude)
+        for region in m["regions"]:
+            if region.get("product_id") != 81 or latitude > -87:
+                continue
+            left, bottom, right, top = region["bounds_xy_m"]
+            if not (left <= x <= right and bottom <= y <= top):
+                continue
+            if math.hypot(x, y) > region["coverage_radius_m"]:
+                continue
+            with rasterio.open(local_path(root, region["original"])) as source:
+                col, row = (~source.transform) * (float(x), float(y))
+                col = float(np.clip(col - .5, 0, source.width - 1))
+                row = float(np.clip(row - .5, 0, source.height - 1))
+                c0, r0 = math.floor(col), math.floor(row)
+                values = source.read(1, window=Window(c0, r0, min(2, source.width-c0), min(2, source.height-r0)), masked=True)
+                weights = np.array([[1-(row-r0)], [row-r0]])[:values.shape[0]] * np.array([[1-(col-c0), col-c0]])[:, :values.shape[1]]
+                invalid = np.ma.getmaskarray(values) | ~np.isfinite(values.data)
+                if np.any(invalid & (weights > 0)):
+                    raise TerrainUnavailable("Local LOLA mosaic has no valid elevation at these coordinates.")
+                height = float(np.sum(np.where(invalid, 0, values.data) * weights))
+                return {"elevation_m": height, "dataset": region["name"],
+                        "catalog_key": region["catalog_key"], "resolution_m": region["native_resolution_m"],
+                        "source": region.get("source"), "version": m["version"],
+                        "method": "Bilinear native raster; no display blending",
+                        "reference_radius_m": m["reference_radius_m"], "frame": region["frame"]}
+        baseline = m["baseline"]
+        grid = _global_array(str(local_path(root, baseline["file"])), baseline["height"], baseline["width"])
+        col = (longitude % 360) * baseline["pixels_per_degree"] - .5
+        row = float(np.clip((90-latitude)*baseline["pixels_per_degree"]-.5, 0, baseline["height"]-1))
+        c0, r0 = math.floor(col), math.floor(row)
+        c1, r1 = c0+1, min(r0+1, baseline["height"]-1)
+        values = np.array([[grid[r0, c0 % baseline["width"]], grid[r0, c1 % baseline["width"]]],
+                           [grid[r1, c0 % baseline["width"]], grid[r1, c1 % baseline["width"]]]], dtype=float)
+        weights = np.array([[1-(row-r0)], [row-r0]]) * np.array([[1-(col-c0), col-c0]])
+        if np.any(((values == baseline.get("nodata", -32768)) | ~np.isfinite(values)) & (weights > 0)):
+            raise TerrainUnavailable("Global LOLA data has no valid elevation at these coordinates.")
+        height = float(np.sum(values * weights)*baseline["scale"])
+        return {"elevation_m": height, "dataset": "Global LOLA", "catalog_key": baseline["key"],
+                "resolution_deg": 1/baseline["pixels_per_degree"], "source": baseline["source"],
+                "version": m["version"], "method": "Bilinear global raster; no display blending",
+                "reference_radius_m": m["reference_radius_m"], "frame": baseline.get("frame", "MOON_ME")}
+    except (OSError, ValueError, KeyError, rasterio.errors.RasterioError) as exc:
+        raise TerrainUnavailable("Local LOLA elevation data is unavailable or invalid. Prepare the terrain data and retry.") from exc

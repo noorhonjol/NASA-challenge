@@ -120,3 +120,49 @@ def test_browser_assets_are_prebuilt_static_files_with_compression_and_versioned
     assert client.get("/api/terrain/assets/mosaics/1/chunks/-1/0.bin").status_code == 404
     assert client.get("/api/terrain/assets/mosaics/1/chunks/2/2.bin").status_code == 404
     assert client.get("/api/terrain/assets/mosaics/1/chunks/0/0.bin?v=old").status_code == 409
+
+
+def test_planner_global_elevation_uses_unblended_local_lola(local_terrain):
+    result = terrain.surface_elevation(45, -180)
+    assert result["elevation_m"] == 100
+    assert result["dataset"] == "Global LOLA"
+    assert result["resolution_deg"] == 90
+
+
+@pytest.fixture
+def native_planning_terrain(local_terrain):
+    import rasterio
+    from rasterio.transform import from_origin
+    m, root = local_terrain
+    # Native raster intentionally differs from the display overview fixture.
+    with rasterio.open(root / "native.tif", "w", driver="GTiff", width=4, height=4,
+                       count=1, dtype="float32", transform=from_origin(-10, 10, 5, 5), nodata=-9999) as dst:
+        dst.write(np.arange(16, dtype="float32").reshape(4, 4)*10, 1)
+    region = m["regions"][0]
+    region.update(product_id=81, original="native.tif", bounds_xy_m=[-10, -10, 10, 10],
+                  coverage_radius_m=10, native_resolution_m=5)
+    (root / "manifest.json").write_text(json.dumps(m))
+    return root
+
+
+def test_planner_uses_native_mosaic_not_display_grid(native_planning_terrain):
+    result = terrain.surface_elevation(-90, 0)
+    assert result["elevation_m"] == pytest.approx(75)
+    assert result["resolution_m"] == 5
+    assert result["dataset"] == "Fixture"
+
+
+def test_missing_native_file_does_not_silently_fall_back(native_planning_terrain):
+    (native_planning_terrain / "native.tif").unlink()
+    with pytest.raises(terrain.TerrainUnavailable):
+        terrain.surface_elevation(-90, 0)
+
+
+def test_native_nodata_is_reported(native_planning_terrain):
+    import rasterio
+    with rasterio.open(native_planning_terrain / "native.tif", "r+") as dst:
+        values = dst.read(1)
+        values[1, 1] = -9999
+        dst.write(values, 1)
+    with pytest.raises(terrain.TerrainUnavailable, match="no valid elevation"):
+        terrain.surface_elevation(-90, 0)

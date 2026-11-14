@@ -27,13 +27,13 @@ export function PlanningPanel({point, at, sites, onClose}: {point: PlanningPoint
       battery_wh: number("battery"), usable_battery_fraction: number("usable")/100,
       minimum_earth_elevation_deg: number("earth"), require_earth_visibility: data.has("communication"),
     };
-    const location = {lat: number("lat"), lon: number("lon"), elevation_m: number("height")};
+    const location = {lat: number("lat"), lon: number("lon")};
     const start = `${data.get("start")}:00Z`;
     const end = `${data.get("end")}:00Z`;
     const step_hours = number("step");
     const grid = {south: number("south"), north: number("north"), west: number("west"), east: number("east"),
-      rows: number("rows"), columns: number("columns"), elevation_m: location.elevation_m};
-    const points = [location, ...sites.filter(site => selectedSites.includes(site.id)).map(site => ({lat: site.lat_deg, lon: site.lon_deg, elevation_m: site.elevation_m ?? 0}))];
+      rows: number("rows"), columns: number("columns")};
+    const points = [location, ...sites.filter(site => selectedSites.includes(site.id)).map(site => ({lat: site.lat_deg, lon: site.lon_deg}))];
     const duration = mode === "power" ? number("duration") : (Date.parse(end)-Date.parse(start))/3600000;
     const combinations = (Math.ceil(duration/step_hours)+1) * (mode === "analysis" ? area === "grid" ? grid.rows*grid.columns : points.length : 1);
     if (duration <= 0 || duration > 8784 || !Number.isFinite(duration)) {setError("Choose an end after the start, within 366 days."); return;}
@@ -64,8 +64,7 @@ export function PlanningPanel({point, at, sites, onClose}: {point: PlanningPoint
         <fieldset><legend>Location</legend><div className="planning-fields">
           {field("Planner latitude (° north)", "lat", point.lat, -90, 90)}
           {field("Planner longitude (° east)", "lon", point.lon, -180, 180)}
-          {field("Planner elevation (m)", "height", point.elevation_m, -20000, 20000)}
-        </div><p>Initialized from the globe selection when opened. Elevation is supplied manually; grids use this elevation for every point.</p>
+        </div><p>Elevation is determined automatically from local LOLA data for each coordinate: native 5 m south-pole mosaic within coverage, coarser global LOLA elsewhere.</p>
         {mode === "analysis" && <>
           <label>Compare using<select value={area} onChange={event => setArea(event.target.value)}><option value="points">This point + named locations</option><option value="grid">Rectangular grid</option></select></label>
           {area === "points" ? <div className="planning-sites">{sites.length ? sites.map(site => <label className="planning-check" key={site.id}><input type="checkbox" checked={selectedSites.includes(site.id)} onChange={event => setSelectedSites(ids => event.target.checked ? [...ids, site.id] : ids.filter(id => id !== site.id))}/>{site.name}</label>) : <p>No named locations available. Use a grid to compare custom locations.</p>}</div>
@@ -96,7 +95,7 @@ export function PlanningPanel({point, at, sites, onClose}: {point: PlanningPoint
       {busy && <p role="status">Querying JPL Horizons for each point and time…</p>}
       {error && <p role="alert">{error}</p>}
       {result && <section aria-label="Planning results" aria-live="polite"><h2>Analysis results · {result.source}</h2>
-        <div className="planning-table"><table><caption>Site comparison · select a row to inspect</caption><thead><tr><th>Location (lat, lon)</th><th>Solar energy (Wh)</th><th>Load (Wh)</th><th>Battery needed (Wh)</th><th>Supplied battery</th></tr></thead><tbody>{results.map((item, i) => <tr key={i} className={active === i ? "is-selected" : ""}><th><button type="button" onClick={() => setActive(i)} aria-pressed={active === i}>{n(item.point.lat)}°, {n(item.point.lon)}°</button></th><td>{n(item.summary.generated_energy_wh)}</td><td>{n(item.summary.load_energy_wh)}</td><td>{n(item.summary.minimum_nameplate_battery_wh)}</td><td>{item.summary.battery_sufficient_if_initially_full ? "Sufficient if full" : "Insufficient"}</td></tr>)}</tbody></table></div>
+        <div className="planning-table"><table><caption>Site comparison · select a row to inspect</caption><thead><tr><th>Location (lat, lon)</th><th>LOLA elevation (m)</th><th>Solar energy (Wh)</th><th>Load (Wh)</th><th>Battery needed (Wh)</th><th>Supplied battery</th></tr></thead><tbody>{results.map((item, i) => <tr key={i} className={active === i ? "is-selected" : ""}><th><button type="button" onClick={() => setActive(i)} aria-pressed={active === i}>{n(item.point.lat)}°, {n(item.point.lon)}°</button></th><td>{n(item.point.elevation_m)}</td><td>{n(item.summary.generated_energy_wh)}</td><td>{n(item.summary.load_energy_wh)}</td><td>{n(item.summary.minimum_nameplate_battery_wh)}</td><td>{item.summary.battery_sufficient_if_initially_full ? "Sufficient if full" : "Insufficient"}</td></tr>)}</tbody></table></div>
         {results[active] && <ResultDetails result={results[active]}/>}
         <details><summary>Model assumptions & sources</summary><ul>{result.assumptions.map(text => <li key={text}>{text}</li>)}</ul><a href={result.solar_reference_url}>Solar irradiance reference</a></details>
       </section>}
@@ -112,6 +111,7 @@ function ResultDetails({result}: {result: PlanningResult}) {
   const x = (at: string) => 45+550*(Date.parse(at)-start)/span;
   const y = (power: number) => 155-125*power/maximum;
   return <>
+    <p>Surface elevation: {n(result.point.elevation_m)} m · {result.elevation.dataset} · {result.elevation.resolution_m !== undefined ? `${n(result.elevation.resolution_m)} m native spacing` : `${n(result.elevation.resolution_deg ?? 0)}° spacing`} · {result.elevation.frame}. Terrain height is used for the observer position; terrain shadows remain excluded.</p>
     <div className="metrics"><article><h3>Net energy</h3><strong>{n(summary.net_energy_wh)} Wh</strong></article><article><h3>Required initial usable energy</h3><strong>{n(summary.minimum_initial_usable_energy_wh)} Wh</strong></article></div>
     <figure className="planning-chart"><figcaption>Solar generation & continuous load (W)</figcaption><svg viewBox="0 0 640 190" role="img" aria-label="Power over time. Gold shows generation; dashed blue shows equipment load. Exact values are in the sample table.">
       <line x1="45" y1="155" x2="595" y2="155" stroke="#607389"/>

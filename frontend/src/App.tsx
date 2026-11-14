@@ -142,7 +142,7 @@ function App() {
     </LunarGlobe>
     </div>
     <dialog ref={plannerDialog} id="planning-workspace" className="planning-workspace" aria-label="Mission planner" onCancel={event => {event.preventDefault(); setPlannerOpen(false);}} onClose={() => setPlannerOpen(false)} onClick={event => {if (event.target === event.currentTarget) setPlannerOpen(false);}}>
-      {plannerVisited && <PlanningPanel point={body === "moon" ? {lat: Number(lat), lon: Number(lon), elevation_m: Number(height)} : {lat: -89.45, lon: 129.2, elevation_m: 0}} at={at} sites={sites} onClose={() => setPlannerOpen(false)}/>}
+      {plannerVisited && <PlanningPanel point={body === "moon" ? {lat: Number(lat), lon: Number(lon)} : {lat: -89.45, lon: 129.2}} at={at} sites={sites} onClose={() => setPlannerOpen(false)}/>}
     </dialog>
   </main>;
 }

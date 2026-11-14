@@ -3,6 +3,9 @@ import math
 from datetime import datetime, timedelta
 from typing import Literal
 
+from starlette.concurrency import run_in_threadpool
+
+from .terrain import surface_elevation
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .horizons import positions
@@ -15,7 +18,6 @@ class Input(BaseModel):
 class Point(Input):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
-    elevation_m: float = Field(default=0, ge=-20000, le=20000)
 
 
 class Grid(Input):
@@ -25,7 +27,6 @@ class Grid(Input):
     east: float = Field(ge=-180, le=180)
     rows: int = Field(default=2, ge=2, le=8)
     columns: int = Field(default=2, ge=2, le=8)
-    elevation_m: float = Field(default=0, ge=-20000, le=20000)
 
     @model_validator(mode="after")
     def ordered(self):
@@ -35,8 +36,7 @@ class Grid(Input):
 
     def points(self):
         return [Point(lat=self.south + r * (self.north-self.south)/(self.rows-1),
-                      lon=self.west + c * (self.east-self.west)/(self.columns-1),
-                      elevation_m=self.elevation_m)
+                      lon=self.west + c * (self.east-self.west)/(self.columns-1))
                 for r in range(self.rows) for c in range(self.columns)]
 
 
@@ -110,6 +110,7 @@ class WindowRequest(Range):
 
 ASSUMPTIONS = [
     "Screening estimate, not mission certification. Airless tangent-plane body-center horizon; no terrain shadows, horizon dip or eclipses.",
+    "Observer elevations sampled from local LOLA: native product 81 within coverage, global LOLA elsewhere; terrain obstruction is still excluded.",
     "1361 W/m2 at 1 AU, scaled by Horizons Sun range; horizontal or ideal Sun-tracking panels.",
     "Load is constant and user supplied: include heaters, instruments and communications. No thermal model or communication link budget.",
     "Energy uses trapezoidal integration between samples. Battery is ideal within the specified usable fraction; no charge-rate model.",
@@ -138,9 +139,10 @@ def sample_power(position, equipment):
 
 
 async def analyze(point, epochs, equipment):
+    elevation = await run_in_threadpool(surface_elevation, point.lat, point.lon)
     samples = []
     for at in epochs:
-        samples.append(sample_power(await positions(point.lat, point.lon, point.elevation_m, at), equipment))
+        samples.append(sample_power(await positions(point.lat, point.lon, elevation["elevation_m"], at), equipment))
     generated_wh = cumulative = peak = drawdown = initial = 0.0
     windows = []
     for i, (a, b) in enumerate(zip(samples, samples[1:])):
@@ -166,7 +168,7 @@ async def analyze(point, epochs, equipment):
             else:
                 windows.append({"start": a["at_utc"], "end": b["at_utc"], "duration_hours": hours})
     duration = (epochs[-1]-epochs[0]).total_seconds()/3600
-    return {"point": point.model_dump(), "samples": samples, "operating_windows": windows,
+    return {"point": {**point.model_dump(), "elevation_m": elevation["elevation_m"]}, "elevation": elevation, "samples": samples, "operating_windows": windows,
             "summary": {"duration_hours": duration, "generated_energy_wh": generated_wh,
                         "load_energy_wh": equipment.load_w*duration,
                         "net_energy_wh": cumulative,

@@ -63,7 +63,7 @@ export async function fetchTerrainManifest(signal?: AbortSignal): Promise<Terrai
   return manifest;
 }
 
-export type PlanningPoint = {lat: number; lon: number; elevation_m: number};
+export type PlanningPoint = {lat: number; lon: number};
 export type Equipment = {
   load_w: number; panel_area_m2: number; panel_efficiency: number; system_efficiency: number;
   panel_mode: "horizontal" | "sun_tracking"; battery_wh: number; usable_battery_fraction: number;
@@ -75,7 +75,9 @@ export type PlanningSample = Positions & {
   required_panel_area_m2: number | null; earth_visible: boolean; meets_operating_constraints: boolean;
 };
 export type PlanningResult = {
-  point: PlanningPoint; samples: PlanningSample[];
+  point: PlanningPoint & {elevation_m: number};
+  elevation: {dataset: string; resolution_m?: number; resolution_deg?: number; method: string; frame: string; reference_radius_m: number};
+  samples: PlanningSample[];
   operating_windows: {start: string; end: string; duration_hours: number}[];
   summary: {duration_hours: number; generated_energy_wh: number; load_energy_wh: number; net_energy_wh: number;
     minimum_initial_usable_energy_wh: number; minimum_usable_storage_wh: number;

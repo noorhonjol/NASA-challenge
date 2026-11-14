@@ -327,7 +327,7 @@ Example area analysis body:
 
 ```json
 {
-  "grid": {"south": -89.5, "north": -89.0, "west": 0, "east": 1, "rows": 2, "columns": 2, "elevation_m": 0},
+  "grid": {"south": -89.5, "north": -89.0, "west": 0, "east": 1, "rows": 2, "columns": 2},
   "start": "2026-11-14T00:00:00Z",
   "end": "2026-11-15T00:00:00Z",
   "step_hours": 6,
@@ -346,10 +346,16 @@ Example area analysis body:
 ```
 
 To compare selected sites instead, replace `grid` with
-`"points": [{"lat": -89, "lon": 0, "elevation_m": 0}, {"lat": -88, "lon": 1}]`.
-Grid samples include their bounds, in row-major order from south/west. Elevation is
-user supplied and constant across a grid; it is not sampled from LOLA. Split grids
-crossing the antimeridian into separate requests.
+`"points": [{"lat": -89, "lon": 0}, {"lat": -88, "lon": 1}]`.
+Grid samples include their bounds, in row-major order from south/west. Every point's
+observer elevation is sampled automatically from the installed local LOLA data:
+the original 5 m product 81 raster inside its south-pole coverage, or the coarser
+global LOLA raster elsewhere. Planning inputs accept coordinates only; manual
+`elevation_m` values are rejected. Heights use bilinear interpolation in the source
+raster, without browser quantization or display blending. Each result includes the
+sampled height, dataset, source, resolution, frame, reference radius and version.
+Missing or invalid terrain returns 503; the planner never silently substitutes zero.
+Split grids crossing the antimeridian into separate requests.
 
 For `/api/planning/power`, supply `point`, `at`, `duration_hours`, `step_hours` and
 `equipment`. Duration defaults to 24 hours; a single instant cannot determine a
@@ -407,7 +413,8 @@ point plus named locations, or a rectangular grid. Click **Run planning analysis
 
 Results include a selectable site comparison table, generation-versus-load chart,
 battery requirements, UTC operating windows and an expandable time-sample table
-with Sun/Earth elevation, incident radiation and electrical power. Model assumptions
+with Sun/Earth elevation, incident radiation and electrical power. Site summaries
+also show automatically sampled LOLA surface elevation and dataset details. Model assumptions
 are available below the results. Editing an input clears old results; a running
 request can be cancelled. The planner works without WebGL and reports API errors
 inline. Restart the backend to enable the planning POST routes before using it.
