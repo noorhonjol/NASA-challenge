@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GlobeOptions } from "./globe/createLunarViewer";
 import { fetchPositions, fetchSites, fetchTerrainManifest, type Positions, type Site, type TerrainManifest } from "./api/client";
+import { PlanningPanel } from "./components/PlanningPanel";
 import { LunarGlobe } from "./components/LunarGlobe";
 
 function App() {
+  const [plannerOpen, setPlannerOpen] = useState(false);
   const [body, setBody] = useState<"moon" | "earth">("moon");
   const activeBody=useRef<"moon"|"earth">("moon");
   const [target, setTarget] = useState<GlobeOptions["target"]>(null);
@@ -74,6 +76,7 @@ function App() {
   return <main>
     <LunarGlobe sites={sites} positions={data} options={globeOptions} onSiteSelect={chooseSite}>
     <header><p className="eyebrow">LUNAR MISSION EXPLORER</p><h1>Lunar Planner</h1><p>Explore sunlight and Earth visibility from the Moon.</p></header>
+    {body === "moon" && <button className="planning-launch" aria-expanded={plannerOpen} aria-controls="mission-planner" type="button" onClick={() => setPlannerOpen(true)}>Plan power & operating windows</button>}
     <form className="controls" onSubmit={event => {
       event.preventDefault();
       setTarget({ latitude: Number(lat), longitude: Number(lon), elevation: Number(height) });
@@ -118,6 +121,7 @@ function App() {
     {error && <p role="alert" className="error">{error}</p>}
     {!data && !loading && <p>Enter coordinates and fly to the location. On the Moon, load Sun & Earth to look toward them from the site.</p>}
     </LunarGlobe>
+    {plannerOpen && body === "moon" && <PlanningPanel point={{lat: Number(lat), lon: Number(lon), elevation_m: Number(height)}} at={at} sites={sites} onClose={() => setPlannerOpen(false)}/>}
   </main>;
 }
 export default App;

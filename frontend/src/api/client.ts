@@ -62,3 +62,40 @@ export async function fetchTerrainManifest(signal?: AbortSignal): Promise<Terrai
   if (!Array.isArray(manifest.regions) || manifest.reference_radius_m !== 1737400) throw new Error("Invalid lunar terrain manifest");
   return manifest;
 }
+
+export type PlanningPoint = {lat: number; lon: number; elevation_m: number};
+export type Equipment = {
+  load_w: number; panel_area_m2: number; panel_efficiency: number; system_efficiency: number;
+  panel_mode: "horizontal" | "sun_tracking"; battery_wh: number; usable_battery_fraction: number;
+  minimum_earth_elevation_deg: number; require_earth_visibility: boolean;
+};
+export type PlanningSample = Positions & {
+  generated_power_w: number; net_power_w: number; load_w: number;
+  solar_irradiance_normal_w_m2: number; panel_irradiance_w_m2: number;
+  required_panel_area_m2: number | null; earth_visible: boolean; meets_operating_constraints: boolean;
+};
+export type PlanningResult = {
+  point: PlanningPoint; samples: PlanningSample[];
+  operating_windows: {start: string; end: string; duration_hours: number}[];
+  summary: {duration_hours: number; generated_energy_wh: number; load_energy_wh: number; net_energy_wh: number;
+    minimum_initial_usable_energy_wh: number; minimum_usable_storage_wh: number;
+    minimum_nameplate_battery_wh: number; battery_sufficient_if_initially_full: boolean};
+};
+export type PlanningResponse = Partial<PlanningResult> & {
+  results?: PlanningResult[]; source: string; solar_reference_url: string; assumptions: string[]; equipment: Equipment;
+};
+
+export async function fetchPlanning(mode: "power" | "analysis" | "windows", payload: object, signal?: AbortSignal): Promise<PlanningResponse> {
+  const response = await fetch(`/api/planning/${mode}`, {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload), signal,
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = body?.detail;
+    throw new Error(typeof detail === "string" ? detail : Array.isArray(detail)
+      ? detail.map((item: {loc?: (string | number)[]; msg: string}) => `${item.loc?.slice(1).join(".")}: ${item.msg}`).join("; ")
+      : `Planning request failed (${response.status})`);
+  }
+  if (!body || (!Array.isArray(body.results) && !Array.isArray(body.samples))) throw new Error("Invalid planning response");
+  return body;
+}

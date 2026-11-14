@@ -394,3 +394,18 @@ combinations**, with steps between 0.25 and 168 hours. The exact end is always
 included even for a partial final interval. Each combination currently makes two
 serialized Horizons requests, so keep interactive comparisons small. Invalid inputs
 return 422; an upstream failure aborts the request with 502, without partial results.
+
+### Planning interface
+
+On the Moon explorer, click **Plan power & operating windows**. The planner opens
+with the current globe coordinates and UTC date. Choose **Mission power estimate**,
+**Compare sites / area**, or **Find equipment operating windows**, then enter your
+schedule and equipment specifications. Comparison supports the current custom
+point plus named locations, or a rectangular grid. Click **Run planning analysis**.
+
+Results include a selectable site comparison table, generation-versus-load chart,
+battery requirements, UTC operating windows and an expandable time-sample table
+with Sun/Earth elevation, incident radiation and electrical power. Model assumptions
+are available below the results. Editing an input clears old results; a running
+request can be cancelled. The planner works without WebGL and reports API errors
+inline. Restart the backend to enable the planning POST routes before using it.

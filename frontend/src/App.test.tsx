@@ -58,3 +58,13 @@ test("product 81 becomes the active dataset without requesting a camera flight",
   expect(screen.queryByRole("combobox",{name:/LOLA terrain dataset/})).not.toBeInTheDocument();
   expect(screen.getByTestId("globe")).toHaveTextContent("moon:-89.5,0");
 });
+
+test("opens the mission planner from Moon controls and closes it", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ok: true, json: async () => []}));
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", {name: "Plan power & operating windows"}));
+  expect(screen.getByRole("region", {name: "Mission power planner"})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Close planner"}));
+  expect(screen.queryByRole("region", {name: "Mission power planner"})).not.toBeInTheDocument();
+  await screen.findByText(/3D terrain unavailable/);
+});
