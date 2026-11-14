@@ -397,8 +397,9 @@ return 422; an upstream failure aborts the request with 502, without partial res
 
 ### Planning interface
 
-Use the top navigation bar to switch between **Globe explorer** and the full-page
-**Mission planner**. Planner inputs and results stay available when switching tabs. The planner opens
+Use **Mission planner** in the top navigation bar to open a large modal over the
+globe. Close it with **Close planner**, Escape, or a click on the backdrop. Inputs
+and results stay available when reopening it. The planner opens
 with the current globe coordinates and UTC date. Choose **Mission power estimate**,
 **Compare sites / area**, or **Find equipment operating windows**, then enter your
 schedule and equipment specifications. Comparison supports the current custom

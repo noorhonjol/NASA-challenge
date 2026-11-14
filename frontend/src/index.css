@@ -88,7 +88,7 @@ a { color: #9edcff; }
 @media (max-width: 1000px) { .planning-panel { width: calc(100vw - 40px); } }
 @media (max-width: 600px) { .planning-panel { inset: 10px 10px 20px; width: auto; } .planning-content { padding: 14px; } .planning-fields { grid-template-columns: 1fr; } .planning-panel .panel-heading { align-items: flex-start; } }
 
-/* Primary pages share the available space below the navigation bar. */
+/* Persistent navigation and a modal planner over the globe. */
 .app-nav { position: absolute; inset: 0 0 auto; height: 82px; z-index: 30; display: flex; align-items: center; gap: 48px; padding: 0 28px; background: #0c141f; border-bottom: 1px solid #34465d; }
 .app-brand { font-size: 20px; font-weight: 700; white-space: nowrap; letter-spacing: -.5px; }
 .app-brand span { display: block; font-size: 9px; letter-spacing: 2px; color: #8ecbe7; margin-top: 3px; }
@@ -99,8 +99,9 @@ a { color: #9edcff; }
 .app-workspace { position: absolute; inset: 82px 0 0; }
 .app-workspace[hidden] { display: none; }
 .app-workspace .explorer-panel { max-height: calc(100% - 50px); }
-.planning-workspace { background: radial-gradient(ellipse at top right, #16314a, #080e17 65%); padding: 24px; overflow: auto; }
-.planning-workspace .planning-panel { position: relative; inset: auto; width: 100%; max-width: 1440px; min-height: 100%; margin: 0 auto; overflow: visible; }
+.planning-workspace { width: min(1440px, calc(100vw - 64px)); max-width: none; height: calc(100dvh - 140px); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid #40536a; border-radius: 16px; background: #0c141f; color: #e8edf5; overflow: auto; box-shadow: 0 24px 100px #000a; }
+.planning-workspace::backdrop { background: #02060bb3; backdrop-filter: blur(5px); }
+.planning-workspace .planning-panel { position: relative; inset: auto; width: 100%; max-width: none; min-height: 100%; margin: 0; overflow: visible; border: 0; border-radius: 0; box-shadow: none; }
 .planning-workspace .planning-panel > .panel-heading { padding: 24px 30px; }
 .planning-workspace .planning-panel h1 { font-size: 30px; }
 .planning-workspace .planning-content { overflow: visible; padding: 24px 30px; }
@@ -121,7 +122,7 @@ a { color: #9edcff; }
   .app-nav-links { flex: 1; gap: 8px; }
   .app-nav-links button { min-width: 0; flex: 1; padding: 14px 10px; font-size: 15px; }
   .app-workspace { top: 112px; }
-  .planning-workspace { padding: 12px; }
+  .planning-workspace { width: calc(100vw - 24px); height: calc(100dvh - 48px); }
   .planning-workspace .planning-panel > .panel-heading, .planning-workspace .planning-content { padding: 18px; }
   .planning-workspace .planning-panel h1 { font-size: 23px; }
   .planning-workspace .planning-content > form { grid-template-columns: 1fr; }

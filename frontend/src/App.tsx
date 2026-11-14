@@ -7,6 +7,17 @@ import { LunarGlobe } from "./components/LunarGlobe";
 function App() {
   const [plannerOpen, setPlannerOpen] = useState(false);
   const [plannerVisited, setPlannerVisited] = useState(false);
+  const plannerDialog = useRef<HTMLDialogElement>(null);
+  const plannerTrigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const dialog = plannerDialog.current;
+    if (!dialog) return;
+    if (plannerOpen && !dialog.open) dialog.showModal();
+    if (!plannerOpen && dialog.open) {
+      dialog.close();
+      plannerTrigger.current?.focus();
+    }
+  }, [plannerOpen]);
   const [body, setBody] = useState<"moon" | "earth">("moon");
   const activeBody=useRef<"moon"|"earth">("moon");
   const [target, setTarget] = useState<GlobeOptions["target"]>(null);
@@ -79,10 +90,10 @@ function App() {
       <span className="app-brand">Lunar Planner<span>MISSION EXPLORER</span></span>
       <div className="app-nav-links">
         <button type="button" aria-current={!plannerOpen ? "page" : undefined} aria-controls="globe-workspace" onClick={() => setPlannerOpen(false)}>Globe explorer</button>
-        <button type="button" aria-current={plannerOpen ? "page" : undefined} aria-controls="planning-workspace" onClick={() => {setPlannerVisited(true); setPlannerOpen(true);}}>Mission planner</button>
+        <button ref={plannerTrigger} type="button" aria-haspopup="dialog" aria-expanded={plannerOpen} aria-controls="planning-workspace" onClick={() => {setPlannerVisited(true); setPlannerOpen(true);}}>Mission planner</button>
       </div>
     </nav>
-    <div id="globe-workspace" className="app-workspace" hidden={plannerOpen}>
+    <div id="globe-workspace" className="app-workspace">
     <LunarGlobe sites={sites} positions={data} options={globeOptions} onSiteSelect={chooseSite}>
     <header><p className="eyebrow">LUNAR MISSION EXPLORER</p><h1>Lunar Planner</h1><p>Explore sunlight and Earth visibility from the Moon.</p></header>
     <form className="controls" onSubmit={event => {
@@ -130,9 +141,9 @@ function App() {
     {!data && !loading && <p>Enter coordinates and fly to the location. On the Moon, load Sun & Earth to look toward them from the site.</p>}
     </LunarGlobe>
     </div>
-    <div id="planning-workspace" className="app-workspace planning-workspace" hidden={!plannerOpen}>
+    <dialog ref={plannerDialog} id="planning-workspace" className="planning-workspace" aria-label="Mission planner" onCancel={event => {event.preventDefault(); setPlannerOpen(false);}} onClose={() => setPlannerOpen(false)} onClick={event => {if (event.target === event.currentTarget) setPlannerOpen(false);}}>
       {plannerVisited && <PlanningPanel point={body === "moon" ? {lat: Number(lat), lon: Number(lon), elevation_m: Number(height)} : {lat: -89.45, lon: 129.2, elevation_m: 0}} at={at} sites={sites} onClose={() => setPlannerOpen(false)}/>}
-    </div>
+    </dialog>
   </main>;
 }
 export default App;
