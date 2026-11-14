@@ -397,7 +397,8 @@ return 422; an upstream failure aborts the request with 502, without partial res
 
 ### Planning interface
 
-On the Moon explorer, click **Plan power & operating windows**. The planner opens
+Use the top navigation bar to switch between **Globe explorer** and the full-page
+**Mission planner**. Planner inputs and results stay available when switching tabs. The planner opens
 with the current globe coordinates and UTC date. Choose **Mission power estimate**,
 **Compare sites / area**, or **Find equipment operating windows**, then enter your
 schedule and equipment specifications. Comparison supports the current custom

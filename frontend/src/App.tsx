@@ -6,6 +6,7 @@ import { LunarGlobe } from "./components/LunarGlobe";
 
 function App() {
   const [plannerOpen, setPlannerOpen] = useState(false);
+  const [plannerVisited, setPlannerVisited] = useState(false);
   const [body, setBody] = useState<"moon" | "earth">("moon");
   const activeBody=useRef<"moon"|"earth">("moon");
   const [target, setTarget] = useState<GlobeOptions["target"]>(null);
@@ -74,9 +75,16 @@ function App() {
   const globeOptions = useMemo(() => ({ body, target, flyToTarget, flightMode, terrainEnabled, terrainRegion }), [body, target, flyToTarget, flightMode, terrainEnabled, terrainRegion]);
 
   return <main>
+    <nav className="app-nav" aria-label="Main navigation">
+      <span className="app-brand">Lunar Planner<span>MISSION EXPLORER</span></span>
+      <div className="app-nav-links">
+        <button type="button" aria-current={!plannerOpen ? "page" : undefined} aria-controls="globe-workspace" onClick={() => setPlannerOpen(false)}>Globe explorer</button>
+        <button type="button" aria-current={plannerOpen ? "page" : undefined} aria-controls="planning-workspace" onClick={() => {setPlannerVisited(true); setPlannerOpen(true);}}>Mission planner</button>
+      </div>
+    </nav>
+    <div id="globe-workspace" className="app-workspace" hidden={plannerOpen}>
     <LunarGlobe sites={sites} positions={data} options={globeOptions} onSiteSelect={chooseSite}>
     <header><p className="eyebrow">LUNAR MISSION EXPLORER</p><h1>Lunar Planner</h1><p>Explore sunlight and Earth visibility from the Moon.</p></header>
-    {body === "moon" && <button className="planning-launch" aria-expanded={plannerOpen} aria-controls="mission-planner" type="button" onClick={() => setPlannerOpen(true)}>Plan power & operating windows</button>}
     <form className="controls" onSubmit={event => {
       event.preventDefault();
       setTarget({ latitude: Number(lat), longitude: Number(lon), elevation: Number(height) });
@@ -121,7 +129,10 @@ function App() {
     {error && <p role="alert" className="error">{error}</p>}
     {!data && !loading && <p>Enter coordinates and fly to the location. On the Moon, load Sun & Earth to look toward them from the site.</p>}
     </LunarGlobe>
-    {plannerOpen && body === "moon" && <PlanningPanel point={{lat: Number(lat), lon: Number(lon), elevation_m: Number(height)}} at={at} sites={sites} onClose={() => setPlannerOpen(false)}/>}
+    </div>
+    <div id="planning-workspace" className="app-workspace planning-workspace" hidden={!plannerOpen}>
+      {plannerVisited && <PlanningPanel point={body === "moon" ? {lat: Number(lat), lon: Number(lon), elevation_m: Number(height)} : {lat: -89.45, lon: 129.2, elevation_m: 0}} at={at} sites={sites} onClose={() => setPlannerOpen(false)}/>}
+    </div>
   </main>;
 }
 export default App;

@@ -56,7 +56,7 @@ export function PlanningPanel({point, at, sites, onClose}: {point: PlanningPoint
     <label key={name}>{label}<input name={name} type="number" required defaultValue={value} min={min} max={max} step={step}/></label>;
 
   return <section id="mission-planner" className="planning-panel" aria-label="Mission power planner">
-    <div className="panel-heading"><div><p className="eyebrow">MISSION SCREENING</p><h1>Power & operating windows</h1></div><button type="button" className="panel-toggle" onClick={onClose}>Close planner</button></div>
+    <div className="panel-heading"><div><p className="eyebrow">MISSION SCREENING</p><h1>Power & operating windows</h1></div><button type="button" className="panel-toggle" onClick={onClose}>Back to globe</button></div>
     <div className="planning-content">
       <p>Compare solar power and direct-to-Earth visibility. All dates and results use UTC.</p>
       <form onSubmit={event => {event.preventDefault(); void submit(event.currentTarget);}} onChange={() => {controller.current?.abort(); setBusy(false); setResult(null); setError("");}}>

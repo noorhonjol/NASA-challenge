@@ -59,12 +59,18 @@ test("product 81 becomes the active dataset without requesting a camera flight",
   expect(screen.getByTestId("globe")).toHaveTextContent("moon:-89.5,0");
 });
 
-test("opens the mission planner from Moon controls and closes it", async () => {
+test("switches navigation pages and preserves planner inputs", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ok: true, json: async () => []}));
   render(<App />);
-  fireEvent.click(screen.getByRole("button", {name: "Plan power & operating windows"}));
+  fireEvent.click(screen.getByRole("button", {name: "Mission planner"}));
   expect(screen.getByRole("region", {name: "Mission power planner"})).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", {name: "Close planner"}));
+  expect(screen.getByRole("button", {name: "Mission planner"})).toHaveAttribute("aria-current", "page");
+  fireEvent.change(screen.getByLabelText("Continuous load (W)"), {target: {value: "250"}});
+  fireEvent.click(screen.getByRole("button", {name: "Back to globe"}));
   expect(screen.queryByRole("region", {name: "Mission power planner"})).not.toBeInTheDocument();
+  expect(screen.getByRole("button", {name: "Globe explorer"})).toHaveAttribute("aria-current", "page");
+  fireEvent.click(screen.getByRole("button", {name: "Mission planner"}));
+  expect(screen.getByLabelText("Continuous load (W)")).toHaveValue(250);
+  fireEvent.click(screen.getByRole("button", {name: "Globe explorer"}));
   await screen.findByText(/3D terrain unavailable/);
 });

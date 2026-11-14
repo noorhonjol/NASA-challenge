@@ -54,8 +54,7 @@ a { color: #9edcff; }
   .navigation-hint { display: none; }
 }
 
-.planning-launch, .planning-run { width: 100%; padding: 12px; background: #a5e3ff; color: #102133; border: 1px solid #b4e8ff; border-radius: 8px; font-weight: 650; }
-.planning-launch { margin-bottom: 18px; }
+.planning-run { width: 100%; padding: 12px; background: #a5e3ff; color: #102133; border: 1px solid #b4e8ff; border-radius: 8px; font-weight: 650; }
 .planning-panel { position: absolute; z-index: 20; right: 20px; top: 20px; bottom: 30px; width: min(850px, calc(100vw - 400px)); display: flex; flex-direction: column; background: #0c141ff5; border: 1px solid #40536a; border-radius: 14px; box-shadow: 0 12px 48px #000a; overflow: hidden; }
 .planning-panel h1 { font-size: 21px; margin-top: 6px; }
 .planning-panel h2 { font-size: 16px; }
@@ -88,3 +87,44 @@ a { color: #9edcff; }
 .planning-content li { margin-bottom: 8px; }
 @media (max-width: 1000px) { .planning-panel { width: calc(100vw - 40px); } }
 @media (max-width: 600px) { .planning-panel { inset: 10px 10px 20px; width: auto; } .planning-content { padding: 14px; } .planning-fields { grid-template-columns: 1fr; } .planning-panel .panel-heading { align-items: flex-start; } }
+
+/* Primary pages share the available space below the navigation bar. */
+.app-nav { position: absolute; inset: 0 0 auto; height: 82px; z-index: 30; display: flex; align-items: center; gap: 48px; padding: 0 28px; background: #0c141f; border-bottom: 1px solid #34465d; }
+.app-brand { font-size: 20px; font-weight: 700; white-space: nowrap; letter-spacing: -.5px; }
+.app-brand span { display: block; font-size: 9px; letter-spacing: 2px; color: #8ecbe7; margin-top: 3px; }
+.app-nav-links { display: flex; align-self: stretch; gap: 12px; }
+.app-nav-links button { min-width: 170px; padding: 0 22px; font-size: 16px; font-weight: 600; border: 0; border-bottom: 3px solid transparent; background: transparent; color: #a9bad0; }
+.app-nav-links button:hover { background: #182a3d; color: #e8f6ff; }
+.app-nav-links button[aria-current="page"] { background: #162d40; color: #bde8ff; border-bottom-color: #a5e3ff; }
+.app-workspace { position: absolute; inset: 82px 0 0; }
+.app-workspace[hidden] { display: none; }
+.app-workspace .explorer-panel { max-height: calc(100% - 50px); }
+.planning-workspace { background: radial-gradient(ellipse at top right, #16314a, #080e17 65%); padding: 24px; overflow: auto; }
+.planning-workspace .planning-panel { position: relative; inset: auto; width: 100%; max-width: 1440px; min-height: 100%; margin: 0 auto; overflow: visible; }
+.planning-workspace .planning-panel > .panel-heading { padding: 24px 30px; }
+.planning-workspace .planning-panel h1 { font-size: 30px; }
+.planning-workspace .planning-content { overflow: visible; padding: 24px 30px; }
+.planning-workspace .planning-content > form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.planning-workspace .planning-content > form > label, .planning-workspace .planning-content > form > p, .planning-workspace .planning-actions { grid-column: 1 / -1; }
+.planning-workspace .planning-content fieldset { margin: 0; height: 100%; }
+.planning-workspace .planning-content fieldset:last-of-type { grid-column: 1 / -1; }
+.planning-workspace .planning-content fieldset:last-of-type .planning-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.planning-workspace .planning-content label { font-size: 13px; }
+.planning-workspace .planning-content input, .planning-workspace .planning-content select { font-size: 14px; padding: 12px; }
+.planning-workspace .planning-content .planning-check input { padding: 0; }
+.planning-workspace .planning-content p { font-size: 13px; }
+.planning-workspace .planning-actions { max-width: 440px; width: 100%; }
+.planning-workspace .planning-chart { max-width: 1000px; }
+@media (max-width: 800px) {
+  .app-nav { height: 112px; padding: 14px 16px 0; flex-direction: column; align-items: stretch; gap: 8px; }
+  .app-brand { font-size: 17px; } .app-brand span { display: none; }
+  .app-nav-links { flex: 1; gap: 8px; }
+  .app-nav-links button { min-width: 0; flex: 1; padding: 14px 10px; font-size: 15px; }
+  .app-workspace { top: 112px; }
+  .planning-workspace { padding: 12px; }
+  .planning-workspace .planning-panel > .panel-heading, .planning-workspace .planning-content { padding: 18px; }
+  .planning-workspace .planning-panel h1 { font-size: 23px; }
+  .planning-workspace .planning-content > form { grid-template-columns: 1fr; }
+  .planning-workspace .planning-content fieldset:last-of-type .planning-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 450px) { .planning-workspace .planning-content fieldset:last-of-type .planning-fields { grid-template-columns: 1fr; } }
