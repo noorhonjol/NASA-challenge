@@ -22,7 +22,7 @@
 
 ## Try it in 30 seconds
 
-1. Open the app: it starts over the south pole.
+1. Open the app (see **Run it yourself** below): it starts over the south pole.
 2. Press **▶ Try it: best 14 days at Artemis III "de Gerlache Rim 2"**. The planner searches the next
    60 days in about half a minute.
 3. Read the verdict at the top: does any window meet every need, and if not, what fails (for example
@@ -35,6 +35,77 @@
 | Sun and Earth against the real horizon | All 9 Artemis III regions side by side | Standing on the rim |
 |---|---|---|
 | ![Horizon chart](docs/images/horizon-chart.png) | ![Site comparison](docs/images/compare-sites.png) | ![Street view](docs/images/street-view.png) |
+
+## Run it yourself
+
+You need **Git**, **Python 3.11+**, **Node.js 20.19+ or 22.12+**, **Docker Desktop** (for the
+database) and about **8 GB** of free disk space for the NASA terrain. Commands are for Windows
+PowerShell; macOS/Linux differences are noted after the steps.
+
+**1. Get the code**
+```powershell
+git clone https://github.com/noorhonjol/NASA-challenge.git
+cd NASA-challenge
+```
+
+**2. Start a local database** (PostgreSQL in Docker) and create its tables
+```powershell
+docker run -d --name lunar-db -p 5432:5432 -e POSTGRES_USER=lunar `
+  -e POSTGRES_PASSWORD=local_dev_password_change_me -e POSTGRES_DB=lunar_planner postgres:16
+Copy-Item backend\.env.example backend\.env
+Add-Content backend\.env @"
+FLYWAY_URL=jdbc:postgresql://host.docker.internal:5432/lunar_planner
+FLYWAY_USER=lunar
+FLYWAY_PASSWORD=local_dev_password_change_me
+FLYWAY_LOCATIONS=filesystem:/flyway/sql
+"@
+docker compose run --rm flyway
+```
+The last command should end with `Successfully applied 7 migrations`. They create the tables and
+the PGDA south-pole sites.
+
+**3. Install the backend and download the NASA data**
+```powershell
+cd backend
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe scripts\prepare_energy.py      # NAIF SPICE DE440 kernels, about 45 MB
+.\.venv\Scripts\python.exe scripts\download_mosaic81.py   # NASA PGDA 81 LOLA mosaic, about 3.5 GB (resumable)
+.\.venv\Scripts\python.exe scripts\prepare_mosaic81.py    # prepares the terrain tiles; takes a while
+cd ..
+```
+
+**4. Install the frontend**
+```powershell
+cd frontend
+npm.cmd install
+cd ..
+```
+
+**5. Run** (two terminals, both from the `NASA-challenge` folder)
+```powershell
+# Terminal 1: the API
+cd backend; .\.venv\Scripts\python.exe -m uvicorn app.main:app
+
+# Terminal 2: the app
+cd frontend; npm.cmd run dev
+```
+Open **<http://localhost:5173>** and press **▶ Try it**. The API docs are at
+<http://127.0.0.1:8000/docs>. Next time, only step 5 is needed (and `docker start lunar-db`
+after a reboot).
+
+**macOS / Linux:** use `python3 -m venv .venv`, `.venv/bin/python` instead of
+`.\.venv\Scripts\python.exe`, `npm` instead of `npm.cmd`, `cp` instead of `Copy-Item`, and
+`\` instead of `` ` `` for line breaks; append the four `FLYWAY_*` lines to `backend/.env` with
+any editor. On Linux, `host.docker.internal` needs `--add-host=host.docker.internal:host-gateway`
+on the `docker compose run` (or use the host's IP address).
+
+**If something fails:**
+- *PowerShell refuses to run `npm`*: use `npm.cmd` as above, or run
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+- *"DATABASE_URL is not set"*: step 2 did not create `backend\.env`.
+- *"Installed LOLA mosaic unavailable" or "DE440 kernels" errors*: rerun the step 3 data scripts.
+- *A page or route says "Not Found" after an update*: stop the API (`Ctrl+C`) and start it again.
 
 ## How to read a result
 
