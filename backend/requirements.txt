@@ -8,3 +8,6 @@ httpx
 numpy
 rasterio
 Pillow
+
+spiceypy
+shapely

@@ -53,6 +53,291 @@ a { color: #9edcff; }
   .panel-content { padding: 14px; }
   .navigation-hint { display: none; }
 }
+
+
+.energy-nav {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 78px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 24px;
+  background: #0c141f;
+  border-bottom: 1px solid #34465d;
+}
+.energy-nav strong {
+  margin-right: 28px;
+  font-size: 20px;
+}
+.energy-nav button {
+  height: 100%;
+  padding: 0 24px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  color: #bdd4e8;
+  background: transparent;
+  font-size: 16px;
+}
+.energy-nav button:hover,
+.energy-nav button[aria-current] {
+  background: #193247;
+  border-bottom-color: #a5e3ff;
+}
+.globe-workspace {
+  position: absolute;
+  inset: 78px 0 0;
+}
+.globe-workspace .explorer-panel {
+  max-height: calc(100% - 50px);
+}
+.energy-dialog {
+  width: min(1320px, calc(100vw - 48px));
+  height: calc(100dvh - 110px);
+  max-width: none;
+  max-height: calc(100dvh - 24px);
+  padding: 0;
+  border: 1px solid #40536a;
+  border-radius: 16px;
+  background: #0c141f;
+  color: #e8edf5;
+  overflow: auto;
+  box-shadow: 0 24px 100px #000a;
+}
+.energy-dialog::backdrop {
+  background: #02060bb3;
+  backdrop-filter: blur(5px);
+}
+.energy-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 28px;
+  border-bottom: 1px solid #34465d;
+  background: #101c2a;
+}
+.energy-heading h1 {
+  font-size: 26px;
+}
+.energy-heading button,
+.energy-actions button {
+  padding: 12px 18px;
+  border-radius: 8px;
+  border: 1px solid #638ca6;
+  background: #1c354a;
+  color: #d6edff;
+}
+.energy-content {
+  padding: 26px;
+}
+.energy-content form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.energy-content fieldset {
+  border: 1px solid #34465d;
+  border-radius: 8px;
+  margin: 0;
+  padding: 16px;
+  min-width: 0;
+}
+.energy-content legend {
+  padding: 0 6px;
+  color: #bde7ff;
+  font-size: 14px;
+}
+.energy-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.energy-content label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #b9cde0;
+  font-size: 13px;
+}
+.energy-content input,
+.energy-content select,
+.energy-content textarea {
+  padding: 12px;
+  font-size: 14px;
+}
+.energy-content textarea {
+  width: 100%;
+  min-height: 90px;
+  background: #101b2a;
+  color: #edf4ff;
+  border: 1px solid #3b4b60;
+  border-radius: 8px;
+}
+.energy-wide {
+  grid-column: 1 / -1;
+}
+.energy-content .energy-check {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 10px;
+}
+.energy-check input {
+  width: 16px;
+  height: 16px;
+}
+.energy-content p {
+  font-size: 13px;
+}
+.energy-actions {
+  display: flex;
+  gap: 14px;
+}
+.energy-actions button[type="submit"] {
+  background: #a5e3ff;
+  color: #102133;
+  font-weight: 650;
+  min-width: 220px;
+}
+.energy-content h2 {
+  font-size: 22px;
+}
+.energy-content h3 {
+  font-size: 16px;
+  margin-top: 24px;
+}
+.energy-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+.energy-facts div {
+  padding: 14px;
+  border: 1px solid #34465d;
+  border-radius: 8px;
+  background: #142031;
+}
+.energy-facts dt {
+  color: #a9bad0;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.energy-facts dd {
+  margin: 8px 0 0;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+.energy-table {
+  overflow: auto;
+  max-height: 480px;
+  margin: 16px 0;
+}
+.energy-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.energy-table th,
+.energy-table td {
+  padding: 12px;
+  border-bottom: 1px solid #34465d;
+  white-space: nowrap;
+}
+.energy-table th {
+  color: #bfe1f7;
+  text-transform: capitalize;
+}
+.energy-content details {
+  margin: 20px 0;
+  font-size: 13px;
+}
+.energy-content summary {
+  cursor: pointer;
+}
+.energy-chart {
+  margin: 20px 0;
+  border: 1px solid #34465d;
+  padding: 16px;
+  border-radius: 8px;
+}
+.energy-chart svg {
+  width: 100%;
+  height: auto;
+}
+.energy-chart text {
+  fill: #b5c7db;
+  font-size: 11px;
+}
+.energy-good {
+  padding: 12px;
+  border-left: 3px solid #8acfb0;
+  background: #13302d;
+}
+.energy-heatmap {
+  display: grid;
+  max-width: 800px;
+  max-height: 480px;
+  overflow: auto;
+  margin: 18px auto;
+  border: 1px solid #34465d;
+}
+.energy-heatmap span {
+  aspect-ratio: 1;
+  min-height: 4px;
+}
+@media (max-width: 700px) {
+  .energy-nav {
+    height: 96px;
+    padding: 10px;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .energy-nav strong {
+    width: 100%;
+    font-size: 17px;
+  }
+  .energy-nav button {
+    height: 44px;
+    flex: 1;
+    font-size: 14px;
+    padding: 8px;
+  }
+  .globe-workspace {
+    top: 96px;
+  }
+  .energy-dialog {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 24px);
+  }
+  .energy-heading,
+  .energy-content {
+    padding: 16px;
+  }
+  .energy-heading h1 {
+    font-size: 20px;
+  }
+  .energy-content form {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 420px) {
+  .energy-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+.globe-canvas.is-placing-pin { cursor: crosshair; }
+.mission-pin-tile { margin: 16px 0; padding: 16px; border: 1px solid #8a7544; border-radius: 10px; background: #322b1b; }
+.mission-pin-tile h2 { margin: 8px 0; font-size: 17px; color: #ffe5a1; overflow-wrap: anywhere; }
+.mission-pin-tile button { width: 100%; padding: 11px; background: #ffd166; color: #30220c; border: 0; border-radius: 7px; font-weight: 650; }
+.mission-pin-controls { grid-column: 1 / -1; padding: 12px; border: 1px solid #40536a; border-radius: 8px; display: grid; gap: 10px; }
+.mission-pin-controls button { padding: 10px; border-radius: 7px; border: 1px solid #638ca6; background: #1c354a; color: #d6edff; }
+.mission-pin-controls button[aria-pressed="true"] { background: #66501d; border-color: #ffd166; }
 .mission-panel { margin-top: 18px; padding-top: 4px; border-top: 1px solid #293545; }
 .link-panel { margin-top: 16px; padding-top: 2px; border-top: 1px solid #1f2b3a; }
 .link-panel > h3 { font-size: 13px; font-weight: 650; margin: 14px 0 4px; }

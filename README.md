@@ -427,3 +427,138 @@ an Earth globe:
 5. Add terrain relief to the globe (Cesium Moon 3D Tiles via an ion token, or an imported
    LOLA DEM) and add visibility charts.
 6. Compare two analysis runs and document uncertainty and limitations.
+
+## Lunar Energy API v1
+
+The energy component is rebuilt from the [v1 specification](docs/requirements/lunar-energy-api-v1.md).
+The previous `/api/planning/*` endpoints and their frontend are removed. Existing
+site, terrain, globe and `/api/positions` functionality remains available.
+
+| Route | Inputs and output |
+|---|---|
+| `GET /v1/solar/point` | Coordinates and UTC instant → terrain height/slope/aspect, Sun/Earth positions, partial solar visibility and irradiance |
+| `POST /v1/solar/region` | Bbox/polygon/circle, physical grid spacing and period → masked metric grids, ranking and optional time series |
+| `POST /v1/power/mission` | Location, mission period, operating/survival load and panel configuration → panel/battery sizing and simulated SOC |
+| `POST /v1/power/windows` | Location, search period, installed equipment and criteria → battery-supported windows, scores and unsuitable reasons |
+
+Install `backend/requirements.txt`, prepare the existing LOLA mosaic, then run:
+
+```sh
+cd backend
+.venv/bin/python scripts/prepare_energy.py
+.venv/bin/python -m uvicorn app.main:app --reload
+```
+
+`prepare_energy.py` downloads about 45 MB of pinned NAIF kernels into
+`backend/data/spice/`, verifies SHA-256 hashes, and records provenance. Kernels and
+horizon caches stay on disk and are gitignored. No ephemeris network requests occur
+during energy analysis. The API uses DE440s, the DE440 lunar orientation PCK,
+`MOON_ME_DE440_ME421` frame definitions, and NAIF leap seconds. Missing/corrupt
+kernels or DEM files return structured errors. Restart Vite: its proxy now forwards
+both `/api` and `/v1` to `API_PROXY_TARGET`.
+
+Open **Mission planner** in the top navigation bar. Its modal provides all four
+analysis tasks. Point and region solar analysis require no equipment. Mission sizing
+requires demand because sunlight cannot determine equipment consumption. Elevation,
+slope and aspect come from LOLA; **height_m** is only the sensor/panel height above
+that surface. The modal includes grid heatmaps, ranked cells, energy budgets,
+panel comparisons, SOC/power timelines, warnings, and full JSON download. Closing
+and reopening preserves the form/results. The globe remains mounted underneath.
+
+Example requests:
+
+```sh
+curl 'http://127.0.0.1:8000/v1/solar/point?lat=-89.45&lon=-137.3&height_m=2&time=2026-12-01T12:00:00Z'
+```
+
+```json
+{
+  "location": {"lat": -89.45, "lon": -137.3, "height_m": 2},
+  "start": "2026-12-01T00:00:00Z",
+  "duration_hours": 336,
+  "load": {"average_w": 150, "survival_w": 40, "peak_w": 400},
+  "panel": {"mode": "auto", "efficiency": 0.3, "degradation_pct": 10},
+  "assumptions": {"battery_dod": 0.8, "battery_efficiency": 0.95, "margin_pct": 20}
+}
+```
+
+Submit the JSON body to `/v1/power/mission`; all schemas and other request shapes
+are available at `/docs`. Region periods default to six-hour steps; mission/window
+periods to one hour. The exact final epoch is included, including a shorter last
+interval. Time support is 2020 through 2035 UTC, step range 0.25–24 h, region/window
+span at most 731 days, and mission duration at most 8760 h. Region cell × epoch
+work is capped at 2,000,000 before any expensive terrain calculation. Requests
+remain synchronous: large, uncached regions can take substantial time. The work
+limit is an admission bound, not a latency guarantee or a claim of maximum-size
+production performance. JSON downloads contain complete results; the UI limits
+very large grid/time-series previews to keep the page responsive.
+
+### Terrain and numerical conventions
+
+- Source elevation and gradients: original product 81 5 m raster within 87–90°S;
+  global LOLA elsewhere. Heights do not use browser blending or quantization.
+- Terrain horizons: 360 azimuth bins; native 5 m samples within 250 m, prepared
+  50 m polar overview farther away, global LOLA outside polar coverage. Curved
+  surface rays extend to 500 km with dense near-field/log-spaced far-field samples.
+  Profiles are cached per DEM version, coordinates, algorithm and observer height.
+  Missing overview edge pixels use valid global terrain. Invalid global coverage
+  fails rather than becoming a flat horizon. Sites where the finite horizon extent
+  is insufficient are rejected.
+- Solar disk: fixed 0.53° diameter, circular segment over an interpolated straight
+  terrain horizon. Irradiance projects the center vector onto each surface and is
+  clamped nonnegative. This approximation can miss thin ridges/partial-disk effects.
+- Fixed-horizontal panels use the local tangent plane; terrain irradiance uses the
+  DEM normal. Aspect is downslope azimuth, north=0° clockwise; flat aspect=0°.
+- Region cells are anchored in projected meters. South/north polar grids use polar
+  stereographic coordinates; other regions use a centered equidistant cylindrical
+  grid. Requested spacing snaps upward to supported analysis sampling levels
+  (5, 10, 20, 40, 80, 160, 240, 480, 960, 1920 m, and coarser doubles). Outside the
+  native south-pole coverage, the minimum spacing is 1920 m to match global data.
+  These are sampling levels, not a claim that all source DEMs have that resolution.
+- Energy integrates actual interval lengths. Solar power is linearly interpolated;
+  loads are held at interval starts. Custom-load timestamps are inserted into the
+  mission timeline so changes are integrated at their actual times.
+- Mission load is operating/custom power while lit and survival power while dark.
+  Minimum panel sizing includes storage losses and requires net energy balance;
+  battery sizing tracks maximum cumulative deficit, including internal zero crossings.
+  Recommended sizes apply the design margin. Infeasible sizes are null, never infinity.
+- Battery round-trip loss is split equally between charge/discharge. SOC is **usable
+  SOC**: 0% corresponds to the specified DoD floor. All simulations start full.
+  Optional `assumptions.max_charge_w` and `max_discharge_w` model rate limits.
+  Wh alone cannot determine discharge W: missing discharge limits produce a
+  `PEAK_RATE_UNCHECKED` warning instead of an invented peak-rate result.
+- Windows deliver full required operating power even while dark. Outside eligible
+  intervals the survival load applies. SOC proceeds chronologically and is never
+  reset at a candidate window. A zero survival load gives no derived survival
+  darkness limit. Explicit darkness limits still apply. A zero average-margin
+  criterion disables that extra filter; a positive criterion filters by mean solar
+  power margin. Scores clamp every normalized term to [0,1]. Summary window counts
+  and duration describe all qualifying windows, before `max_results` truncation.
+- `auto` evaluates all 5° fixed-tilt/azimuth pairs against the endpoint objective,
+  retaining the best fixed pair for comparison with horizontal and tracking modes.
+  `prefer_simple` excludes full tracking and chooses a fixed mode within tolerance
+  of the best remaining option; otherwise vertical tracking can win. This resolves
+  the specification's otherwise conflicting full-tracking preference rules.
+
+Responses identify actual DEM products and DE440; example labels such as
+`LDEM_80S_20M` are not substituted for installed datasets. Results are engineering
+screening estimates, not validated mission certification. No secondary illumination,
+eclipses, thermal survival prediction, radio link budget or peak-load duration model
+is included. Low-angle results are sensitive to terrain/horizon sampling. See the
+[implementation decisions](docs/requirements/lunar-energy-api-v1-decisions.md).
+
+To precompute horizons for known sites, supply a JSON list of Location objects:
+`python scripts/prepare_energy.py --horizons locations.json`. Normal requests reuse
+these profiles and lazily create missing profiles. Changing observer height or the
+DEM/algorithm version creates a different cache entry.
+
+### Pins to calculations
+
+On the Moon page, enter an optional **Pin title**, click **Add pin on Moon**, then
+click the surface. Alternatively enter coordinates and click **Pin these coordinates**.
+The selected pin gets a tile with its title, coordinates and the page's UTC time.
+Choose that time and click **Calculate energy for this pin**. The modal receives
+both the pin's coordinates and the first page's time. Choosing another pin or time
+opens a fresh calculation; reopening the same selection preserves its current form.
+Pins are available in the location selector for the current session. Energy analysis
+still samples elevation from LOLA, independently of the marker's display height.

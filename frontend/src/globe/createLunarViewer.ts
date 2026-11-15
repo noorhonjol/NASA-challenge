@@ -14,6 +14,7 @@ export type GlobeOptions = {
   flightMode?: "site" | "terrain";
   terrainEnabled?: boolean;
   terrainRegion?: string;
+  pinPlacement?: boolean;
 };
 
 export type GlobeHandle = {
@@ -90,9 +91,20 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
   const selectedPin = pinBuilder.fromColor(Cesium.Color.fromCssColorString("#ffd166"), 36).toDataURL();
   const pinClicks = new Cesium.ScreenSpaceEventHandler(scene.canvas);
   pinClicks.setInputAction((click: {position: Cesium.Cartesian2}) => {
+    if (isMoon && options?.pinPlacement) {
+      const ray = scene.camera.getPickRay(click.position);
+      const point = ray && scene.globe.pick(ray, scene);
+      const position = point ?? scene.camera.pickEllipsoid(click.position, ellipsoid);
+      if (!position) return;
+      const coordinate = ellipsoid.cartesianToCartographic(position);
+      element.dispatchEvent(new CustomEvent("pin-placed", {detail: {
+        latitude: Cesium.Math.toDegrees(coordinate.latitude), longitude: Cesium.Math.toDegrees(coordinate.longitude), elevation: coordinate.height,
+      }}));
+      return;
+    }
     const picked = scene.pick(click.position);
     const id = picked?.id?.id;
-    if (typeof id === "string" && /^site-\d+$/.test(id)) {
+    if (typeof id === "string" && /^site--?\d+$/.test(id) && id !== "site--1") {
       element.dispatchEvent(new CustomEvent("site-selected", {detail:id.slice(5)}));
     }
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);

@@ -1,10 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import App from "./App";
 import type { ReactNode } from "react";
 
-vi.mock("./components/LunarGlobe", () => ({ LunarGlobe: ({options, children}: {children: ReactNode; options: {body: string; target?: {latitude: number; longitude: number} | null}}) =>
-  <>{children}<div data-testid="globe">{options.body}:{options.target?.latitude},{options.target?.longitude}</div></> }));
+vi.mock("./components/LunarGlobe", () => ({ LunarGlobe: ({options, children, onPinPlace}: {children: ReactNode; onPinPlace?: (point:{latitude:number;longitude:number;elevation:number})=>void; options: {body: string; pinPlacement?:boolean; target?: {latitude: number; longitude: number} | null}}) =>
+  <>{children}{options.pinPlacement && <button onClick={()=>onPinPlace?.({latitude:-88.123,longitude:42.456,elevation:900})}>Place test pin</button>}<div data-testid="globe">{options.body}:{options.target?.latitude},{options.target?.longitude}</div></> }));
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -57,6 +57,52 @@ test("product 81 becomes the active dataset without requesting a camera flight",
   expect(await screen.findByText(/Product 81 · Continuous coverage/)).toBeInTheDocument();
   expect(screen.queryByRole("combobox",{name:/LOLA terrain dataset/})).not.toBeInTheDocument();
   expect(screen.getByTestId("globe")).toHaveTextContent("moon:-89.5,0");
+});
+
+test("navigation opens the new energy modal over the existing globe", async () => {
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {configurable:true,value:function(this:HTMLDialogElement){this.setAttribute("open","");}});
+  Object.defineProperty(HTMLDialogElement.prototype, "close", {configurable:true,value:function(this:HTMLDialogElement){this.removeAttribute("open");}});
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ok:true,json:async()=>[]}));
+  render(<App/>);
+  fireEvent.click(screen.getByRole("button",{name:"Mission planner"}));
+  expect(screen.getByRole("dialog",{name:"Lunar Energy planner"})).toHaveAttribute("open");
+  expect(screen.getByTestId("globe")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button",{name:"Close planner"}));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  await screen.findByText(/3D terrain unavailable/);
+});
+
+test("pin tile carries its title, coordinates and first-page UTC time into calculation", async () => {
+  Object.defineProperty(HTMLDialogElement.prototype,"showModal",{configurable:true,value:function(this:HTMLDialogElement){this.setAttribute("open","");}});
+  Object.defineProperty(HTMLDialogElement.prototype,"close",{configurable:true,value:function(this:HTMLDialogElement){this.removeAttribute("open");}});
+  const fetch=vi.fn(async (url:string)=>({ok:true,json:async()=>url.startsWith('/v1/')?{meta:{request_id:'pin-test',dem_product:'LOLA',ephemeris:'DE440',computed_in_ms:10,horizon_model:'test',limitations:[]}}:[]}));
+  vi.stubGlobal('fetch',fetch);render(<App/>);
+  fireEvent.change(screen.getByLabelText(/^Latitude/),{target:{value:'-89.7'}});
+  fireEvent.change(screen.getByLabelText(/^Longitude/),{target:{value:'-12.3'}});
+  fireEvent.change(screen.getByLabelText('Pin title'),{target:{value:'Rim candidate A'}});
+  fireEvent.change(screen.getByLabelText('Mission start (UTC)'),{target:{value:'2026-12-03T05:30'}});
+  fireEvent.click(screen.getByRole('button',{name:'Pin these coordinates'}));
+  expect(screen.getByRole('article',{name:'Selected mission pin'})).toHaveTextContent('Rim candidate A');
+  fireEvent.click(screen.getByRole('button',{name:'Calculate energy for this pin'}));
+  let dialog=screen.getByRole('dialog',{name:'Lunar Energy planner'});
+  expect(within(dialog).getByLabelText('Lunar latitude (° north)')).toHaveValue(-89.7);
+  expect(within(dialog).getByLabelText('Lunar longitude (° east)')).toHaveValue(-12.3);
+  expect(within(dialog).getByLabelText('Time (UTC)')).toHaveValue('2026-12-03T05:30');
+  fireEvent.click(within(dialog).getByRole('button',{name:'Run energy analysis'}));
+  await within(dialog).findByRole('region',{name:'Energy results'});
+  const url=fetch.mock.calls.find(([url])=>url.startsWith('/v1/'))?.[0];
+  expect(url).toContain('lat=-89.7');expect(url).toContain('lon=-12.3');expect(url).toContain('2026-12-03T05%3A30');
+  fireEvent.click(within(dialog).getByRole('button',{name:'Close planner'}));
+  fireEvent.change(screen.getByLabelText('Pin title'),{target:{value:'Rim candidate B'}});
+  fireEvent.change(screen.getByLabelText('Mission start (UTC)'),{target:{value:'2026-12-05T09:00'}});
+  fireEvent.click(screen.getByRole('button',{name:'Add pin on Moon'}));
+  fireEvent.click(screen.getByRole('button',{name:'Place test pin'}));
+  fireEvent.click(screen.getByRole('button',{name:'Calculate energy for this pin'}));
+  dialog=screen.getByRole('dialog',{name:'Lunar Energy planner'});
+  expect(within(dialog).getByLabelText('Lunar latitude (° north)')).toHaveValue(-88.123);
+  expect(within(dialog).getByLabelText('Time (UTC)')).toHaveValue('2026-12-05T09:00');
+  expect(within(dialog).queryByRole('region',{name:'Energy results'})).not.toBeInTheDocument();
+  expect(screen.getByRole('option',{name:'Rim candidate A'})).toBeInTheDocument();
 });
 
 test("one mission time range drives Show Sun & Earth and both mission checks", async () => {
