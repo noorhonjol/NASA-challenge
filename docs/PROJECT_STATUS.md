@@ -1,7 +1,7 @@
 # Project status: Lunar Landing Site Navigator
 
 Last updated: 2026-11-15. Read this first when picking the project up on another machine.
-`README.md` is the user and API manual; this file records **what was built, why, what was
+`docs/DEVELOPER.md` is the user and API manual (`README.md` is the judges' page); this file records **what was built, why, what was
 verified, and what is still open**.
 
 Commits covered: `f5b14f2` (section 3 below, pushed to `main`) and Noor's merged PR #1
