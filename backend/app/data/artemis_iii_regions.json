@@ -1,0 +1,358 @@
+{
+ "title": "NASA Artemis III candidate landing regions (October 2024 update)",
+ "source": {
+  "announcement": "https://www.nasa.gov/news-release/nasa-provides-update-on-artemis-iii-moon-landing-regions/",
+  "paper": "George, Rubio, Lawrence, Curell (2026), Artemis III Site Selection Update: Downselection From Thirteen to Nine Candidate Regions, LPSC; https://ntrs.nasa.gov/citations/20250011660",
+  "image": "Image 1, 'The 9 candidate landing regions', credit NASA/GSFC/ASU/JSC/AGDT"
+ },
+ "accuracy": "NASA publishes these regions only as boxes on a map, not as coordinates. Corners were digitized from that map: south-polar stereographic, pole at the marked star, 0 deg longitude up and 90 deg E right (checked against Shackleton and de Gerlache craters), scale from the 50 km bar. Expect errors of a few km. Boxes show the regions as drawn, not official boundaries; each region contains several candidate sites.",
+ "derivation": {
+  "pole_px": [
+   370.1,
+   378.4
+  ],
+  "km_per_px": 0.5524861878453039,
+  "image_size_px": [
+   709,
+   548
+  ],
+  "boxes_px": {
+   "Peak near Cabeus B": [
+    31,
+    234,
+    68,
+    272
+   ],
+   "Haworth": [
+    275,
+    189,
+    331,
+    244
+   ],
+   "Malapert Massif": [
+    350,
+    142,
+    390,
+    181
+   ],
+   "Mons Mouton Plateau": [
+    457,
+    62,
+    596,
+    167
+   ],
+   "Mons Mouton": [
+    486,
+    152,
+    515,
+    183
+   ],
+   "Nobile Rim 1": [
+    502,
+    163,
+    539,
+    200
+   ],
+   "Nobile Rim 2": [
+    631,
+    189,
+    669,
+    228
+   ],
+   "de Gerlache Rim 2": [
+    265,
+    318,
+    303,
+    356
+   ],
+   "Slater Plain": [
+    477,
+    448,
+    514,
+    486
+   ]
+  },
+  "sphere_radius_km": 1737.4
+ },
+ "regions": [
+  {
+   "id": "artemis3-peak-near-cabeus-b",
+   "name": "Peak near Cabeus B",
+   "program": "Artemis III",
+   "center": {
+    "lat": -83.734,
+    "lon": -68.6375
+   },
+   "polygon": [
+    [
+     -83.3163,
+     -67.0165
+    ],
+    [
+     -83.8965,
+     -64.6806
+    ],
+    [
+     -84.1462,
+     -70.4888
+    ],
+    [
+     -83.5434,
+     -72.3772
+    ]
+   ],
+   "size_km": [
+    19.3,
+    19.9
+   ]
+  },
+  {
+   "id": "artemis3-haworth",
+   "name": "Haworth",
+   "program": "Artemis III",
+   "center": {
+    "lat": -86.8077,
+    "lon": -22.5117
+   },
+   "polygon": [
+    [
+     -86.1645,
+     -26.5407
+    ],
+    [
+     -86.4916,
+     -12.0158
+    ],
+    [
+     -87.4276,
+     -16.4972
+    ],
+    [
+     -86.9965,
+     -34.7984
+    ]
+   ],
+   "size_km": [
+    29.8,
+    29.3
+   ]
+  },
+  {
+   "id": "artemis3-malapert-massif",
+   "name": "Malapert Massif",
+   "program": "Artemis III",
+   "center": {
+    "lat": -86.0497,
+    "lon": -0.0264
+   },
+   "polygon": [
+    [
+     -85.699,
+     -4.6387
+    ],
+    [
+     -85.6993,
+     4.5904
+    ],
+    [
+     -86.37,
+     5.4417
+    ],
+    [
+     -86.3697,
+     -5.4989
+    ]
+   ],
+   "size_km": [
+    21.0,
+    20.4
+   ]
+  },
+  {
+   "id": "artemis3-mons-mouton-plateau",
+   "name": "Mons Mouton Plateau",
+   "program": "Artemis III",
+   "center": {
+    "lat": -84.4152,
+    "lon": 30.653
+   },
+   "polygon": [
+    [
+     -84.0399,
+     15.5728
+    ],
+    [
+     -82.9511,
+     35.4913
+    ],
+    [
+     -84.3683,
+     46.6373
+    ],
+    [
+     -85.8137,
+     22.4818
+    ]
+   ],
+   "size_km": [
+    75.7,
+    56.9
+   ]
+  },
+  {
+   "id": "artemis3-mons-mouton",
+   "name": "Mons Mouton",
+   "program": "Artemis III",
+   "center": {
+    "lat": -85.4846,
+    "lon": 31.7286
+   },
+   "polygon": [
+    [
+     -85.3763,
+     27.4128
+    ],
+    [
+     -85.1306,
+     32.555
+    ],
+    [
+     -85.5661,
+     36.2298
+    ],
+    [
+     -85.8376,
+     30.7617
+    ]
+   ],
+   "size_km": [
+    14.9,
+    16.0
+   ]
+  },
+  {
+   "id": "artemis3-nobile-rim-1",
+   "name": "Nobile Rim 1",
+   "program": "Artemis III",
+   "center": {
+    "lat": -85.488,
+    "lon": 37.374
+   },
+   "polygon": [
+    [
+     -85.4065,
+     31.7935
+    ],
+    [
+     -85.0415,
+     38.0651
+    ],
+    [
+     -85.5254,
+     43.1035
+    ],
+    [
+     -85.9339,
+     36.5311
+    ]
+   ],
+   "size_km": [
+    19.3,
+    19.3
+   ]
+  },
+  {
+   "id": "artemis3-nobile-rim-2",
+   "name": "Nobile Rim 2",
+   "program": "Artemis III",
+   "center": {
+    "lat": -84.0397,
+    "lon": 58.7421
+   },
+   "polygon": [
+    [
+     -84.127,
+     54.2703
+    ],
+    [
+     -83.5847,
+     57.6896
+    ],
+    [
+     -83.9173,
+     63.0592
+    ],
+    [
+     -84.4925,
+     59.9685
+    ]
+   ],
+   "size_km": [
+    19.9,
+    20.4
+   ]
+  },
+  {
+   "id": "artemis3-de-gerlache-rim-2",
+   "name": "de Gerlache Rim 2",
+   "program": "Artemis III",
+   "center": {
+    "lat": -88.2595,
+    "lon": -64.3201
+   },
+   "polygon": [
+    [
+     -87.8165,
+     -60.2907
+    ],
+    [
+     -88.3537,
+     -48.9035
+    ],
+    [
+     -88.6881,
+     -71.0366
+    ],
+    [
+     -88.0562,
+     -77.3314
+    ]
+   ],
+   "size_km": [
+    19.9,
+    19.9
+   ]
+  },
+  {
+   "id": "artemis3-slater-plain",
+   "name": "Slater Plain",
+   "program": "Artemis III",
+   "center": {
+    "lat": -87.203,
+    "lon": 125.2427
+   },
+   "polygon": [
+    [
+     -87.651,
+     123.1971
+    ],
+    [
+     -87.0966,
+     116.2918
+    ],
+    [
+     -86.7526,
+     126.7221
+    ],
+    [
+     -87.237,
+     134.6528
+    ]
+   ],
+   "size_km": [
+    19.3,
+    19.9
+   ]
+  }
+ ]
+}

@@ -6,6 +6,7 @@ import { makeSkyImages } from "./skyImages";
 import { setupOrbitCamera } from "./orbitCamera";
 import { centerFrame } from "./orbitCameraMath";
 import { loadLolaTerrain } from "./lolaTerrain";
+import { createPolarCap, type PolarCap } from "./polarCap";
 
 export type GlobeOptions = {
   body: "moon" | "earth";
@@ -15,11 +16,23 @@ export type GlobeOptions = {
   terrainEnabled?: boolean;
   terrainRegion?: string;
   pinPlacement?: boolean;
+  /** Clicks add polygon corners ("polygon-point" events) instead of selecting sites. */
+  drawing?: boolean;
+  /** Mission planner area (closed polygon, or open while drawing) and ranked spots. */
+  overlay?: {
+    polygon: [number, number][] | null;
+    closed: boolean;
+    spots: { lat: number; lon: number; label: string; pass: boolean }[];
+  } | null;
 };
 
 export type GlobeHandle = {
   destroy(): void;
   view?: (mode: "globe" | "pole" | "site" | "earth" | "sun" | "center" | "terrain") => void;
+  /** Street-level surface view: stand at the screen centre (or below the camera), or rise back to orbit. */
+  surface?: (action: "enter" | "exit", at?: { latitude: number; longitude: number }) => void;
+  /** In surface view, face an azimuth/elevation in degrees (to keep the Sun or Earth centred). */
+  surfaceLook?: (azimuthDeg: number, elevationDeg: number) => void;
   update?: (markers: SiteMarker[], positions?: Positions | null, options?: GlobeOptions) => Promise<void>;
 };
 
@@ -34,6 +47,10 @@ export type CreateGlobe = (
 export const MOON_TEXTURE_URL = "/textures/lroc_color_2k.jpg";
 
 const MOON_CREDIT = "NASA SVS / LRO LROC WAC mosaic";
+/** Development-only camera readouts of live globes, for automated checks. */
+const devReadouts = new Set<() => unknown>();
+/** Minimum distance (m) of the sky dome that carries the Sun and Earth discs. */
+const SKY_DOME_M = 20_000_000;
 
 /**
  * Build a navigable lunar globe. Everything here is Moon-specific: the
@@ -83,20 +100,46 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
     fullscreenButton: false,
     infoBox: false,
     selectionIndicator: false,
+    scene3DOnly: true,
   });
 
   const scene = viewer.scene;
+  // 87–90° S is drawn by a polar mesh instead of globe tiles when the polar mosaic is active.
+  let cap: PolarCap | null = null;
+  // The Moon as an occluder for pins: a sphere 10 km below the reference radius (under the deepest craters).
+  const capOccluder = new Cesium.EllipsoidalOccluder(Cesium.Ellipsoid.fromCartesian3(
+    new Cesium.Cartesian3(ellipsoid.maximumRadius - 10_000, ellipsoid.maximumRadius - 10_000, ellipsoid.maximumRadius - 10_000)));
+  const capAnchor = new Cesium.Cartesian3();
+  /** Surface point under the cursor, with LOLA height inside the polar cap. */
+  const pickSurface = (position: Cesium.Cartesian2) => {
+    if (cap && scene.pickPositionSupported) {
+      const point = scene.pickPosition(position);
+      const c = point && ellipsoid.cartesianToCartographic(point);
+      if (c && Cesium.Math.toDegrees(c.latitude) < -87) {
+        c.height = cap.heightAt(Cesium.Math.toDegrees(c.latitude), Cesium.Math.toDegrees(c.longitude)) ?? c.height;
+        return c;
+      }
+    }
+    const ray = scene.camera.getPickRay(position);
+    const point = (ray && scene.globe.pick(ray, scene)) ?? scene.camera.pickEllipsoid(position, ellipsoid);
+    return point ? ellipsoid.cartesianToCartographic(point) : undefined;
+  };
   const pinBuilder = new Cesium.PinBuilder();
   const sitePin = pinBuilder.fromColor(Cesium.Color.fromCssColorString("#69ceff"), 32).toDataURL();
   const selectedPin = pinBuilder.fromColor(Cesium.Color.fromCssColorString("#ffd166"), 36).toDataURL();
   const pinClicks = new Cesium.ScreenSpaceEventHandler(scene.canvas);
   pinClicks.setInputAction((click: {position: Cesium.Cartesian2}) => {
+    if (isMoon && options?.drawing) {
+      const coordinate = pickSurface(click.position);
+      if (!coordinate) return;
+      element.dispatchEvent(new CustomEvent("polygon-point", {detail: {
+        latitude: Cesium.Math.toDegrees(coordinate.latitude), longitude: Cesium.Math.toDegrees(coordinate.longitude),
+      }}));
+      return;
+    }
     if (isMoon && options?.pinPlacement) {
-      const ray = scene.camera.getPickRay(click.position);
-      const point = ray && scene.globe.pick(ray, scene);
-      const position = point ?? scene.camera.pickEllipsoid(click.position, ellipsoid);
-      if (!position) return;
-      const coordinate = ellipsoid.cartesianToCartographic(position);
+      const coordinate = pickSurface(click.position);
+      if (!coordinate) return;
       element.dispatchEvent(new CustomEvent("pin-placed", {detail: {
         latitude: Cesium.Math.toDegrees(coordinate.latitude), longitude: Cesium.Math.toDegrees(coordinate.longitude), elevation: coordinate.height,
       }}));
@@ -130,6 +173,12 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
   });
   scene.camera.frustum.far = 2e11;
   scene.globe.enableLighting = false;
+  // Depth-test 3D objects against the globe instead of clearing its depth. Without this, Cesium
+  // clears the globe's depth and, near the ground, draws a depth plane at the reference sphere,
+  // which hides the polar cap mesh wherever its terrain lies below the sphere (crater floors) and
+  // lets the cap draw over globe mountains in front of it. Pins keep their own depth settings, and
+  // lines already show a dashed style where terrain hides them.
+  if (isMoon) scene.globe.depthTestAgainstTerrain = true;
   scene.globe.showGroundAtmosphere = false;
   scene.fog.enabled = false;
   scene.backgroundColor = Cesium.Color.BLACK;
@@ -140,8 +189,38 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
   viewer.camera.setView({
     destination: Cesium.Cartesian3.fromDegrees(0, isMoon ? -28 : 20, isMoon ? 5_200_000 : 18_000_000, ellipsoid),
   });
-  const navigation = setupOrbitCamera(viewer, ellipsoid);
+  const navigation = setupOrbitCamera(viewer, ellipsoid, {
+    // Inside the cap: the higher of the true terrain and the drawn (possibly coarser) surface,
+    // so a camera at eye height never ends up inside the mesh.
+    groundHeight: c => {
+      if (!cap) return undefined;
+      const lat = Cesium.Math.toDegrees(c.latitude), lon = Cesium.Math.toDegrees(c.longitude);
+      const terrain = cap.heightAt(lat, lon), drawn = cap.drawnHeightAt(lat, lon);
+      return terrain === undefined ? undefined : Math.max(terrain, drawn ?? terrain);
+    },
+    pickSurface,
+    surfaceAllowed: () => isMoon,
+    clickTravelEnabled: () => !options?.pinPlacement && !options?.drawing,
+    onSurface: status => element.dispatchEvent(new CustomEvent("surface-view", { detail: status })),
+  });
   navigation.center();
+  // Development-only camera readout for automated checks (the newest live globe answers).
+  const readout = () => {
+    const c = ellipsoid.cartesianToCartographic(viewer.camera.positionWC);
+    if (!c) return null;
+    const ground = cap?.heightAt(Cesium.Math.toDegrees(c.latitude), Cesium.Math.toDegrees(c.longitude)) ?? scene.globe.getHeight(c) ?? 0;
+    return { aboveGround: c.height - ground, pitchDeg: Cesium.Math.toDegrees(viewer.camera.pitch), surface: navigation.isSurface(),
+      pick: (x: number, y: number) => {
+        const position = new Cesium.Cartesian2(x, y);
+        const depth = scene.pickPositionSupported ? scene.pickPosition(position) : undefined;
+        const hit = pickSurface(position);
+        return { depthHit: !!depth, groundHeight: ground, hit: hit ? [Cesium.Math.toDegrees(hit.latitude), Cesium.Math.toDegrees(hit.longitude), hit.height] : null };
+      } };
+  };
+  if (import.meta.env.DEV) {
+    devReadouts.add(readout);
+    Object.assign(globalThis, { __lunarCamera: () => [...devReadouts].at(-1)?.() ?? null });
+  }
   const centeredDestination = (destination: Cesium.Cartesian3) => {
     const frame = centerFrame(destination);
     return { destination, orientation: {
@@ -153,6 +232,43 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
   let destroyed = false;
   let lastFlight = options?.flyToTarget ?? 0;
   let skyImagesPromise: ReturnType<typeof makeSkyImages> | null = null;
+  // The Sun and Earth discs live in their own data source and are created once, then only their
+  // direction and label change. Removing and re-adding them (every Sky & time step) left Cesium's
+  // reused billboard without its texture: the label showed, the disc did not.
+  const skySource = new Cesium.CustomDataSource("sky");
+  void viewer.dataSources.add(skySource);
+  type SkyBody = { entity: Cesium.Entity; unit: Cesium.Cartesian3; rangeM: number; text: string };
+  const skyBodies: Partial<Record<"sun" | "earth", SkyBody>> = {};
+  const skyBody = (body: "sun" | "earth", color: Cesium.Color, images: Awaited<ReturnType<typeof makeSkyImages>> | null): SkyBody => {
+    const existing = skyBodies[body];
+    if (existing && (existing.entity.billboard || !images)) return existing;
+    if (existing) skySource.entities.remove(existing.entity);       // upgrade a plain point to the image
+    const radiusM = body === "earth" ? 6_371_000 : 695_700_000;
+    const state: SkyBody = { entity: undefined as unknown as Cesium.Entity, unit: new Cesium.Cartesian3(0, 0, 1), rangeM: 1, text: "" };
+    // The disc sits on a sky dome around the camera, in the body's true direction from the site, and
+    // always beyond the Moon, so the Moon and its ridges still hide it where they should.
+    const position = new Cesium.CallbackPositionProperty((_time, result) => {
+      const eye = viewer.camera.positionWC;
+      const dome = Math.max(SKY_DOME_M, Cesium.Cartesian3.magnitude(eye) + 4 * ellipsoid.maximumRadius);
+      return Cesium.Cartesian3.add(eye, Cesium.Cartesian3.multiplyByScalar(state.unit, dome, new Cesium.Cartesian3()), result ?? new Cesium.Cartesian3());
+    }, false);
+    state.entity = skySource.entities.add({ name: body, position,
+      billboard: images ? { image: images[body],
+        // True angular size (from the real range), with a minimum so the body stays findable.
+        scale: new Cesium.CallbackProperty(() => {
+          const frustum = viewer.camera.frustum;
+          const fov = (frustum instanceof Cesium.PerspectiveFrustum ? frustum.fovy : undefined) ?? Math.PI / 3;
+          const pixels = 2 * Math.atan(radiusM / state.rangeM) / (Number.isFinite(fov) && fov > 0 ? fov : Math.PI / 3) * scene.canvas.clientHeight;
+          return Math.max(body === "sun" ? 14 : 10, pixels) / (body === "sun" ? 36 : 256);
+        }, false),
+      } : undefined,
+      point: images ? undefined : { pixelSize: 15, color },
+      label: { text: new Cesium.CallbackProperty(() => state.text, false), font: "15px system-ui", fillColor: color, showBackground: true,
+        pixelOffset: new Cesium.Cartesian2(0, body === "sun" ? -38 : 38) },
+    });
+    skyBodies[body] = state;
+    return state;
+  };
   const update: NonNullable<GlobeHandle["update"]> = async (nextMarkers, nextPositions, nextOptions) => {
     const current = ++revision;
     let preparedTerrain: Awaited<ReturnType<NonNullable<typeof lola>["select"]>> | null = null;
@@ -161,7 +277,7 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
     if (lola && nextTerrainEnabled && (nextRegion !== activeTerrainRegion || !terrainEnabled)) {
       element.dispatchEvent(new CustomEvent("terrain-loading", {detail:true}));
       try { preparedTerrain = await lola.select(nextRegion); } catch {
-        preparedTerrain = {provider:lola.provider,imagery:null};
+        preparedTerrain = {provider:lola.provider,imagery:null,cap:null};
         if (!destroyed) element.dispatchEvent(new CustomEvent("imagery-warning", {detail:"Could not load the prepared region. Showing global terrain; select the region again to retry."}));
       } finally { if (!destroyed && current === revision) element.dispatchEvent(new CustomEvent("terrain-loading", {detail:false})); }
     } else {
@@ -179,12 +295,26 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
     const useTerrain = Boolean(lola && options?.terrainEnabled !== false);
     if (preparedTerrain || useTerrain !== terrainEnabled) {
       terrainEnabled = useTerrain;
-      viewer.terrainProvider = useTerrain && lola ? (preparedTerrain?.provider ?? lola.provider) : flatTerrain;
       if (terrainShade) viewer.imageryLayers.remove(terrainShade, true);
-      terrainShade = preparedTerrain?.imagery ? viewer.imageryLayers.addImageryProvider(preparedTerrain.imagery) : null;
+      terrainShade = null;
+      cap?.destroy(); cap = null;
+      const capSource = useTerrain ? preparedTerrain?.cap ?? null : null;
+      if (capSource && lola) {
+        // Globe tiles stop at 87° S (no polar slivers); the cap mesh draws the rest.
+        viewer.terrainProvider = lola.provider;
+        scene.globe.cartographicLimitRectangle = Cesium.Rectangle.fromDegrees(-180, -87, 180, 90);
+        cap = createPolarCap(scene, capSource);
+        // Development-only hook for performance measurements.
+        if (import.meta.env.DEV) Object.assign(globalThis, { __polarCap: cap.stats });
+      } else {
+        scene.globe.cartographicLimitRectangle = Cesium.Rectangle.MAX_VALUE;
+        viewer.terrainProvider = useTerrain && lola ? (preparedTerrain?.provider ?? lola.provider) : flatTerrain;
+        terrainShade = preparedTerrain?.imagery ? viewer.imageryLayers.addImageryProvider(preparedTerrain.imagery) : null;
+      }
       activeTerrainRegion = useTerrain ? nextRegion : "";
     }
     viewer.entities.removeAll();
+    for (const sky of Object.values(skyBodies)) sky.entity.show = false;
 
   const targetIsNamedSite = isMoon && options?.target && markers.some(marker =>
     Math.abs(marker.latitudeDeg-options!.target!.latitude)<1e-7 && Math.abs(marker.longitudeDeg-options!.target!.longitude)<1e-7);
@@ -193,26 +323,40 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
     longitudeDeg: options.target.longitude, latitudeDeg: options.target.latitude, heightM: options.target.elevation,
   }] : []) ];
   for (const [index, marker] of displayedMarkers.entries()) {
+    const markerCap = cap?.heightAt(marker.latitudeDeg, marker.longitudeDeg) === undefined ? null : cap;
+    const isSelected = marker.id === -1 || Boolean(options?.target && Math.abs(marker.latitudeDeg - options.target.latitude) < 1e-7
+      && Math.abs(marker.longitudeDeg - options.target.longitude) < 1e-7);
+    const reference = markerCap ? Cesium.HeightReference.NONE : Cesium.HeightReference.CLAMP_TO_GROUND;
+    // Moon pins are never sliced by nearby terrain (the globe is depth-tested against 3D objects):
+    // no per-pixel depth test, and hidden only when the Moon itself is between pin and camera.
+    const depthOff = isMoon ? Number.POSITIVE_INFINITY : 200_000;
+    const capShow = isMoon ? new Cesium.CallbackProperty(() => {
+      capOccluder.cameraPosition = scene.camera.positionWC;
+      return capOccluder.isPointVisible(Cesium.Cartesian3.fromDegrees(marker.longitudeDeg, marker.latitudeDeg, 0, ellipsoid, capAnchor));
+    }, false) : true;
     viewer.entities.add({
       id: `site-${marker.id}`,
       name: marker.name,
       description: marker.description,
-      position: Cesium.Cartesian3.fromDegrees(
-        marker.longitudeDeg,
-        marker.latitudeDeg,
-        marker.heightM,
-        ellipsoid,
-      ),
+      // Inside the polar cap the globe has no tiles to clamp to: follow the cap's drawn surface instead.
+      position: markerCap
+        ? new Cesium.CallbackPositionProperty((_time, result) => Cesium.Cartesian3.fromDegrees(marker.longitudeDeg, marker.latitudeDeg,
+          markerCap.drawnHeightAt(marker.latitudeDeg, marker.longitudeDeg) ?? marker.heightM, ellipsoid, result), false)
+        : Cesium.Cartesian3.fromDegrees(marker.longitudeDeg, marker.latitudeDeg, marker.heightM, ellipsoid),
       billboard: {
         image: marker.id === -1 || (options?.target && Math.abs(marker.latitudeDeg-options.target.latitude)<1e-7 && Math.abs(marker.longitudeDeg-options.target.longitude)<1e-7) ? selectedPin : sitePin,
         verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        disableDepthTestDistance: 200_000,
+        heightReference: reference,
+        disableDepthTestDistance: depthOff,
+        show: capShow,
       },
       label: {
         text: marker.name,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        disableDepthTestDistance: 200_000,
+        // Names of other pins only when the camera is within 400 km: the whole-Moon view stays readable.
+        distanceDisplayCondition: isSelected ? undefined : new Cesium.DistanceDisplayCondition(0, 400_000),
+        heightReference: reference,
+        disableDepthTestDistance: depthOff,
+        show: capShow,
         font: "13px system-ui, sans-serif",
         // Keep labels near their pins; use short alternating offsets rather
         // than increasing the displacement for every landmark in the catalog.
@@ -225,6 +369,8 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
       },
     });
   }
+
+  if (isMoon && options?.overlay) drawOverlay(options.overlay);
 
   if (positions && isMoon) {
     const origin = Cesium.Cartesian3.fromDegrees(
@@ -274,39 +420,27 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
         const offset = Cesium.Cartesian3.multiplyByScalar(across, body === "earth" ? 6_371_000 : 695_700_000, new Cesium.Cartesian3());
         const edgeA = Cesium.Cartesian3.add(skyPosition, offset, new Cesium.Cartesian3());
         const edgeB = Cesium.Cartesian3.subtract(skyPosition, offset, new Cesium.Cartesian3());
+        // Sight lines and planes are orbit-view guides; at street level they would cut through the view.
         viewer.entities.add({ id: `${body}-moon-link`, name: `${bodyName}–Moon sight line`, polyline: {
-          positions: [origin, skyPosition], arcType: Cesium.ArcType.NONE, width: 2,
+          show: showGuides, positions: [origin, skyPosition], arcType: Cesium.ArcType.NONE, width: 2,
           material: new Cesium.PolylineDashMaterialProperty({ color: linkColor, dashLength: 20 }),
           depthFailMaterial: new Cesium.PolylineDashMaterialProperty({ color: linkColor.withAlpha(0.2), dashLength: 20 }),
         } });
         viewer.entities.add({ id: `${body}-moon-polygon`, name: `${bodyName}–Moon visual connection plane`, polygon: {
-          hierarchy: new Cesium.PolygonHierarchy([origin, edgeA, edgeB]),
+          show: showGuides, hierarchy: new Cesium.PolygonHierarchy([origin, edgeA, edgeB]),
           perPositionHeight: true, arcType: Cesium.ArcType.NONE,
           material: linkColor.withAlpha(0.08),
         } });
         viewer.entities.add({ id: `${body}-moon-boundary`, name: `${bodyName}–Moon connection edges`, polyline: {
-          positions: [edgeA, origin, edgeB], arcType: Cesium.ArcType.NONE, width: 1,
+          show: showGuides, positions: [edgeA, origin, edgeB], arcType: Cesium.ArcType.NONE, width: 1,
           material: linkColor.withAlpha(0.45),
         } });
       }
-      const radiusM = body === "earth" ? 6_371_000 : 695_700_000;
-      const canvas = skyImages?.[body];
-      viewer.entities.add({ name: body, position: skyPosition,
-        billboard: canvas ? { image: canvas,
-          scale: new Cesium.CallbackProperty(() => {
-            const range = Cesium.Cartesian3.distance(viewer.camera.positionWC, skyPosition);
-            const frustum = viewer.camera.frustum;
-            const fov = (frustum instanceof Cesium.PerspectiveFrustum ? frustum.fovy : undefined) ?? Math.PI / 3;
-            const pixels = 2 * Math.atan(radiusM / range) / fov * scene.canvas.clientHeight;
-            return Math.max(body === "sun" ? 14 : 10, pixels) / (body === "sun" ? 36 : 256);
-          }, false),
-        } : undefined,
-        point: canvas ? undefined : { pixelSize: 15, color },
-        label: { text: `${body === "sun" ? "Sun" : "Earth"}  ${value.elevation_deg.toFixed(2)}°\n${value.above_horizon ? "Above horizon" : "Below horizon"}`,
-          font: "15px system-ui", fillColor: color, showBackground: true,
-          pixelOffset: new Cesium.Cartesian2(0, body === "sun" ? -38 : 38),
-          },
-      });
+      const sky = skyBody(body, color, skyImages);
+      Cesium.Cartesian3.normalize(Cesium.Cartesian3.subtract(skyPosition, origin, new Cesium.Cartesian3()), sky.unit);
+      sky.rangeM = rangeM;
+      sky.text = `${body === "sun" ? "Sun" : "Earth"}  ${value.elevation_deg.toFixed(2)}°\n${value.above_horizon ? "Above horizon" : "Below horizon"}`;
+      sky.entity.show = true;
     }
     viewer.clock.currentTime = Cesium.JulianDate.fromIso8601(positions.at_utc);
     viewer.clock.shouldAnimate = false;
@@ -319,7 +453,56 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
     scene.requestRender();
   };
 
+  /** Ground height: the polar cap's LOLA height inside 87° S, else loaded globe tiles, else the sphere. */
+  const groundAt = (lat: number, lon: number) =>
+    cap?.heightAt(lat, lon) ?? scene.globe.getHeight(Cesium.Cartographic.fromDegrees(lon, lat)) ?? 0;
+
+  function drawOverlay(overlay: NonNullable<GlobeOptions["overlay"]>) {
+    const corners = overlay.polygon ?? [];
+    const lift = 150;   // keep the outline just above the terrain it follows
+    const path: Cesium.Cartesian3[] = [];
+    const edges = overlay.closed ? corners.length : corners.length - 1;
+    for (let i = 0; i < edges; i++) {
+      const [lat0, lon0] = corners[i], [lat1, lon1] = corners[(i + 1) % corners.length];
+      const a = Cesium.Cartesian3.normalize(Cesium.Cartesian3.fromDegrees(lon0, lat0, 0, ellipsoid), new Cesium.Cartesian3());
+      const b = Cesium.Cartesian3.normalize(Cesium.Cartesian3.fromDegrees(lon1, lat1, 0, ellipsoid), new Cesium.Cartesian3());
+      const angle = Cesium.Cartesian3.angleBetween(a, b);
+      const steps = Math.max(1, Math.ceil(angle / 0.0005));      // about 0.9 km per segment
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        // Spherical interpolation along the great circle between the corners.
+        const sa = angle > 1e-9 ? Math.sin((1 - t) * angle) / Math.sin(angle) : 1 - t;
+        const sb = angle > 1e-9 ? Math.sin(t * angle) / Math.sin(angle) : t;
+        const dir = Cesium.Cartesian3.add(Cesium.Cartesian3.multiplyByScalar(a, sa, new Cesium.Cartesian3()),
+          Cesium.Cartesian3.multiplyByScalar(b, sb, new Cesium.Cartesian3()), new Cesium.Cartesian3());
+        const c = ellipsoid.cartesianToCartographic(dir);
+        if (!c) continue;
+        const lat = Cesium.Math.toDegrees(c.latitude), lon = Cesium.Math.toDegrees(c.longitude);
+        path.push(Cesium.Cartesian3.fromDegrees(lon, lat, groundAt(lat, lon) + lift, ellipsoid));
+      }
+    }
+    const outline = Cesium.Color.fromCssColorString("#fde725");
+    if (path.length > 1) viewer.entities.add({ id: "mission-area", name: "Mission area", polyline: {
+      positions: path, width: 3, arcType: Cesium.ArcType.NONE, material: outline,
+      depthFailMaterial: new Cesium.PolylineDashMaterialProperty({ color: outline.withAlpha(0.6) }),
+    } });
+    corners.forEach(([lat, lon], i) => viewer.entities.add({ id: `mission-corner-${i}`,
+      position: Cesium.Cartesian3.fromDegrees(lon, lat, groundAt(lat, lon) + lift, ellipsoid),
+      point: { pixelSize: 8, color: outline, outlineColor: Cesium.Color.BLACK, outlineWidth: 1, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+    }));
+    overlay.spots.forEach((spot, i) => viewer.entities.add({ id: `mission-spot-${i}`, name: spot.label,
+      position: Cesium.Cartesian3.fromDegrees(spot.lon, spot.lat, groundAt(spot.lat, spot.lon) + lift, ellipsoid),
+      point: { pixelSize: 11, color: Cesium.Color.fromCssColorString(spot.pass ? "#5fd39a" : "#ff9b8f"),
+        outlineColor: Cesium.Color.BLACK, outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+      label: { text: spot.label, font: "13px system-ui, sans-serif", pixelOffset: new Cesium.Cartesian2(12, -12),
+        horizontalOrigin: Cesium.HorizontalOrigin.LEFT, showBackground: true,
+        backgroundColor: Cesium.Color.fromAlpha(Cesium.Color.BLACK, 0.6), disableDepthTestDistance: Number.POSITIVE_INFINITY },
+    }));
+  }
+
   const view: NonNullable<GlobeHandle["view"]> = (mode) => {
+    // Programmed flights take the camera out of surface view first.
+    navigation.exitSurface(false);
     if (mode === "center") { navigation.center(); return; }
     const target = options?.target ?? (positions && isMoon ? {
       latitude: positions.latitude_deg, longitude: positions.longitude_deg, elevation: positions.elevation_m,
@@ -353,8 +536,31 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
   await update(markers, positions, options);
 
   return {
-    destroy: () => { destroyed = true; revision++; pinClicks.destroy(); navigation.destroy(); viewer.destroy(); },
+    destroy: () => { destroyed = true; revision++; devReadouts.delete(readout); pinClicks.destroy(); navigation.destroy(); cap?.destroy(); cap = null; viewer.destroy(); },
     view,
     update,
+    surfaceLook: (azimuthDeg, elevationDeg) => {
+      if (navigation.isSurface()) { navigation.lookAt(azimuthDeg, elevationDeg); return; }
+      if (!positions || !isMoon) return;
+      // Orbit view: the direction is the one seen from the site; the camera stays where it is.
+      const site = Cesium.Cartesian3.fromDegrees(positions.longitude_deg, positions.latitude_deg, positions.elevation_m, ellipsoid);
+      const local = localDirection(azimuthDeg, elevationDeg, 1);
+      const direction = Cesium.Matrix4.multiplyByPointAsVector(Cesium.Transforms.eastNorthUpToFixedFrame(site, ellipsoid),
+        new Cesium.Cartesian3(local.east, local.north, local.up), new Cesium.Cartesian3());
+      Cesium.Cartesian3.normalize(direction, direction);
+      const radial = Cesium.Cartesian3.normalize(viewer.camera.positionWC, new Cesium.Cartesian3());
+      const up = Cesium.Cartesian3.subtract(radial, Cesium.Cartesian3.multiplyByScalar(direction, Cesium.Cartesian3.dot(radial, direction), new Cesium.Cartesian3()), new Cesium.Cartesian3());
+      if (Cesium.Cartesian3.magnitude(up) < 1e-6) return;
+      Cesium.Cartesian3.normalize(up, up);
+      viewer.camera.cancelFlight();
+      viewer.camera.setView({ destination: Cesium.Cartesian3.clone(viewer.camera.positionWC), orientation: { direction, up } });
+      scene.requestRender();
+    },
+    surface: (action, at) => {
+      if (action === "exit") { navigation.exitSurface(); return; }
+      if (at) { navigation.enterSurface(Cesium.Cartographic.fromDegrees(at.longitude, at.latitude)); return; }
+      const middle = new Cesium.Cartesian2(scene.canvas.clientWidth / 2, scene.canvas.clientHeight / 2);
+      navigation.enterSurface(pickSurface(middle));
+    },
   };
 };

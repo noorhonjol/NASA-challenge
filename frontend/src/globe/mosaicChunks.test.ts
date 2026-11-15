@@ -22,3 +22,14 @@ test("fine terrain is fetched once from local prepared chunks and reuses its cac
   expect(load).toHaveBeenCalledTimes(1);
   expect(Number.isNaN(detail.sample(100,100))).toBe(true);
 });
+
+test("a polar x/y box loads exactly the chunks it overlaps",async()=>{
+  const load=vi.fn(async(_url:string)=>({width:3,height:3,scale_m:.5,nodata:-32768,values:new Int16Array(9)}));
+  const detail=createMosaicDetails(region,load);
+  await detail.prepareXY(-1.6,1,-1,1.6);                       // top-left corner only
+  expect(load.mock.calls.map(c=>c[0])).toEqual(["/local/0/0.bin"]);
+  await detail.prepareXY(-2,-2,2,2);                           // the whole grid
+  expect(load.mock.calls.map(c=>c[0]).sort()).toEqual(["/local/0/0.bin","/local/0/1.bin","/local/1/0.bin","/local/1/1.bin"]);
+  await detail.prepareXY(50,50,60,60);                         // outside: nothing
+  expect(load).toHaveBeenCalledTimes(4);
+});

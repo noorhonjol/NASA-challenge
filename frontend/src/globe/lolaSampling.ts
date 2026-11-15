@@ -32,20 +32,45 @@ export function sampleGrid(grid: Grid, column: number, row: number, wrap = false
   return weight ? sum/weight*grid.scale_m : NaN;
 }
 
-export function sampleLola(global: Grid, pixelsPerDegree: number, latitude: number, longitude: number, region?: RegionGrid): number {
+export const MOON_RADIUS_M = 1737400;
+
+/** South-polar stereographic x/y (m, x toward 90° E, y toward 0°) to latitude/longitude in radians. */
+export function polarToLatLon(x: number, y: number): [number, number] {
+  return [2*Math.atan(Math.hypot(x,y)/(2*MOON_RADIUS_M))-Math.PI/2, Math.atan2(x,y)];
+}
+
+function sampleBaseline(global: Grid, pixelsPerDegree: number, latitude: number, longitude: number) {
   const degrees = 180/Math.PI;
-  const baseline = sampleGrid(global, ((longitude*degrees%360)+360)%360*pixelsPerDegree-.5, (90-latitude*degrees)*pixelsPerDegree-.5, true);
-  if (!region || latitude > -70/degrees) return baseline;
-  const rho=2*1737400*Math.tan(Math.PI/4+latitude/2);
-  const x=rho*Math.sin(longitude), y=rho*Math.cos(longitude);
+  return sampleGrid(global, ((longitude*degrees%360)+360)%360*pixelsPerDegree-.5, (90-latitude*degrees)*pixelsPerDegree-.5, true);
+}
+
+/** Blend the polar region into the baseline height at polar x/y, fading out over 250 m at its edges. */
+function blendRegion(baseline: number, region: RegionGrid, x: number, y: number, useDetail: boolean) {
   const [left,bottom,right,top]=region.bounds_xy_m;
   if(x<left||x>right||y<bottom||y>top) return baseline;
-  const detailed=region.sampleDetail?.(x,y);
+  const detailed=useDetail?region.sampleDetail?.(x,y):undefined;
   const local=Number.isFinite(detailed)?detailed!:sampleGrid(region,(x-region.pixel_center_origin_xy_m[0])/region.resolution_m,(region.pixel_center_origin_xy_m[1]-y)/region.resolution_m);
   if(!Number.isFinite(local)) return baseline;
   const edge=Math.min(x-left,right-x,y-bottom,top-y,region.coverage_radius_m===undefined?Infinity:region.coverage_radius_m-Math.hypot(x,y));
   let weight=Math.min(1,Math.max(0,edge/250)); weight=weight*weight*(3-2*weight);
   return baseline*(1-weight)+local*weight;
+}
+
+export function sampleLola(global: Grid, pixelsPerDegree: number, latitude: number, longitude: number, region?: RegionGrid): number {
+  const baseline = sampleBaseline(global, pixelsPerDegree, latitude, longitude);
+  if (!region || latitude > -70*Math.PI/180) return baseline;
+  const rho=2*MOON_RADIUS_M*Math.tan(Math.PI/4+latitude/2);
+  return blendRegion(baseline, region, rho*Math.sin(longitude), rho*Math.cos(longitude), true);
+}
+
+/**
+ * Height at south-polar x/y with the same blend as sampleLola, so the polar cap mesh and
+ * the globe agree where they meet. `useDetail` selects the native 5 m chunks (when loaded)
+ * instead of the 50 m overview.
+ */
+export function sampleCapXY(global: Grid, pixelsPerDegree: number, region: RegionGrid, x: number, y: number, useDetail: boolean): number {
+  const [latitude, longitude] = polarToLatLon(x, y);
+  return blendRegion(sampleBaseline(global, pixelsPerDegree, latitude, longitude), region, x, y, useDetail);
 }
 
 export function buildLolaHeightmap(global: Grid, ppd: number, rectangle: {west: number; east: number; north: number; south: number}, size: number, region?: RegionGrid) {

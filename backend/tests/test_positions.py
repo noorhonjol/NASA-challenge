@@ -52,3 +52,28 @@ def test_upstream_error_returns_502(monkeypatch):
         raise httpx.ConnectError("offline")
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
     assert TestClient(app).get("/api/positions?lat=0&lon=0&at=2026-11-14T12:00:00Z").status_code == 502
+
+
+
+def test_track_returns_both_bodies_as_columns(monkeypatch):
+    from datetime import timedelta, timezone
+    from app.routers import positions as router
+    calls = []
+
+    async def fake(target, lat, lon, height_m, start, step, count):
+        calls.append((target, lat, count, step))
+        return [(start + timedelta(minutes=step * i), 10.0 * i % 360, -1.0 + i, 150e6 if target == "10" else 384e3)
+                for i in range(count)]
+
+    monkeypatch.setattr(router, "body_series", fake)
+    client = TestClient(app)
+    r = client.get("/api/positions/track", params={"start": "2026-12-01T00:00:30Z", "lat": -90, "lon": 0,
+                                                 "days": 1, "step_minutes": 60})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["count"] == 25 and j["start_utc"] == "2026-12-01T00:00:00Z"
+    assert j["sun"]["elevation_deg"][:3] == [-1.0, 0.0, 1.0] and len(j["earth"]["azimuth_deg"]) == 25
+    assert [c[0] for c in calls] == ["10", "399"] and calls[0][1] == -89.9999
+    assert client.get("/api/positions/track", params={"start": "2026-12-01T00:00:00", "lat": 0, "lon": 0}).status_code == 422
+    assert client.get("/api/positions/track", params={"start": "2026-12-01T00:00:00Z", "lat": 0, "lon": 0,
+                                                    "days": 60, "step_minutes": 5}).status_code == 422

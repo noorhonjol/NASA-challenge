@@ -200,3 +200,20 @@ test("cancel aborts outstanding analysis", () => {
     screen.getByRole("button", { name: "Run energy analysis" }),
   ).toBeEnabled();
 });
+
+test("typed numbers and dates are checked against their limits before anything is sent", () => {
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  mount();
+  // Text fields, so a browser locale cannot render the digits in another script.
+  expect(screen.getByLabelText("Lunar latitude (° north)")).toHaveAttribute("type", "text");
+  expect(screen.getByLabelText("Time (UTC)")).toHaveValue("2026-12-01 00:00");
+  fireEvent.change(screen.getByLabelText("Lunar latitude (° north)"), { target: { value: "95" } });
+  run();
+  expect(screen.getByRole("alert")).toHaveTextContent("Lunar latitude (° north): enter a number from -90 up to 90.");
+  fireEvent.change(screen.getByLabelText("Lunar latitude (° north)"), { target: { value: "-89.45" } });
+  fireEvent.change(screen.getByLabelText("Time (UTC)"), { target: { value: "2040-01-01 00:00" } });
+  run();
+  expect(screen.getByRole("alert")).toHaveTextContent(/between 2020 and 2035/);
+  expect(fetch).not.toHaveBeenCalled();
+});

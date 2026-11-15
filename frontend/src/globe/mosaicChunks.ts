@@ -48,5 +48,16 @@ export function createMosaicDetails(region:TerrainRegion,loadGrid:LoadGrid) {
     }
     await Promise.all([...keys].map(ensure));
   };
-  return {sample,prepare};
+  /** Load every native chunk overlapping a polar x/y box (m), for the polar cap mesh. */
+  const prepareXY=async(left:number,bottom:number,right:number,top:number)=>{
+    const a=native(left,top),b=native(right,bottom);
+    const keys=new Set<string>();
+    const c0=Math.max(0,Math.floor(a.column)),c1=Math.min(spec.width-1,Math.ceil(b.column));
+    const r0=Math.max(0,Math.floor(a.row)),r1=Math.min(spec.height-1,Math.ceil(b.row));
+    if(c0>c1||r0>r1)return;
+    for(let row=Math.floor(r0/spec.size)*spec.size;row<=r1;row+=spec.size)
+      for(let col=Math.floor(c0/spec.size)*spec.size;col<=c1;col+=spec.size)keys.add(keyAt(col,row));
+    await Promise.all([...keys].map(ensure));
+  };
+  return {sample,prepare,prepareXY};
 }

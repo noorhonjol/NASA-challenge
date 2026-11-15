@@ -66,9 +66,10 @@ and **Fly to site** move to explicit center-facing camera presets.
 
 Orbit input is custom rather than Cesium's terrain-pivoted default: there is no
 linear panning or post-drag inertia. Close-up orbit speed scales with altitude.
-Touch supports one-finger orbit and two-finger pinch zoom. Zoom is limited to at
-least 40 m above the body's enclosing reference sphere; the lunar maximum altitude
-is 1,000,000 km, so the Earth–Moon relationship can also be explored from afar.
+Touch supports one-finger orbit and two-finger pinch zoom. Zoom is measured from the
+ground below the camera. On the Moon, zooming below 800 m switches to the street-level
+surface view (see "The lunar globe"); the lunar maximum altitude is 1,000,000 km, so
+the Earth–Moon relationship can also be explored from afar.
 
 On the Moon, **Show Sun & Earth** loads live Horizons bearings and ranges; **Look toward
 Earth/Sun** moves the camera above the site and looks along that body's bearing.
@@ -91,7 +92,7 @@ Migration V3 initially registered product 78's 27 separate regional models.
 V4 registers product 81 (`catalog_key: pgda-81:87S`); V5 removes product 78 records,
 preserving any historical analysis-run terrain metadata before detaching its FK.
 V6 adds 27 named product 78 region centers as navigation pins, and V7 removes
-the fictional demonstration sites. One **Named LOLA location** selector and
+the fictional demonstration sites. One **Site** selector and
 clickable map pins navigate these locations while retaining the product 81 mosaic.
 Pins represent regional raster centers, not official landing coordinates. Fifteen
 centers are inside the 87–90°S mosaic and use elevations sampled from its native
@@ -134,9 +135,58 @@ Moon center `coord@301`, Sun target 10 and Earth target 399.
 `/api/positions` stays flat-horizon only. For terrain-aware Earth visibility over a
 period, use `/api/earth-link` below.
 
+## Mission planner (power, heat and communication)
+
+Pick a site and press **Check this site**, or press **Open mission planner** in the left panel.
+The planner opens as a drawer on the right, beside the globe; the Moon stays usable.
+
+**Plan tab** (the default, three steps):
+1. **Where:** the selected location; a known region or site (the 9 NASA Artemis III
+   candidate regions as polygons, plus the PGDA 78 sites and your pins as points); or a
+   region you draw. Press **Draw region on the Moon**, click the corners on the globe,
+   then **Finish region**. Dragging still orbits the camera.
+2. **When:** the shared mission time range (2020-2035, at most 366 days).
+3. **Mission type:** crewed landing, lander survival, solar rover, ice cold trap, or no check.
+
+**Analyze** sends one request, `POST /api/mission/analyze`, and shows four cards: power
+(sunlit %, longest darkness, solar energy), heat (lowest to highest surface temperature),
+communication (Earth visible %) and ground (slope, elevation). Below them is the check
+for each criterion. For a site there are also sunlight and temperature charts, and
+refined Earth contact windows. For a region there is a map of the cells with a layer
+picker, the five best spots, and **Fly here** (the planner and its results stay open).
+The region outline and the best spots are also drawn on the globe.
+
+**Detailed analysis tab** (one topic at a time: **Power**, **Heat & sunlight**, **Earth contact**): Noor's Lunar Energy v1 forms (point, region, mission sizing with
+loads and batteries, power windows), and the detailed Earth contact and Sunlight &
+temperature panels.
+
+How `/api/mission/analyze` combines the engines:
+- **Cells:** a point, or the cell centres of the polygon on the Lunar Energy v1 grid, at
+  the finest analysis spacing that keeps at most 200 cells.
+- **Power and Earth visibility per cell:** Lunar Energy v1 (offline SPICE DE440, LOLA,
+  360 horizon bins). The definitions match `/v1/solar/region`. Energy is for a
+  sun-tracking vertical panel, per m², before efficiency.
+- **Heat per cell:** the regolith model behind `/api/sun`, run on the same cell centres,
+  with the Sun from JPL Horizons and one lunation of warm-up.
+- **Single site:** refined Earth windows from `/api/earth-link` (2 m antenna).
+- **Scores:** the mission-type presets in `app/mission.py`. They are illustrative
+  screening thresholds, not agency requirements.
+
+`GET /api/mission/regions` returns the Artemis III regions
+(`backend/app/data/artemis_iii_regions.json`). NASA publishes them only as boxes on a map
+([release](https://www.nasa.gov/news-release/nasa-provides-update-on-artemis-iii-moon-landing-regions/),
+[LPSC 2026 abstract](https://ntrs.nasa.gov/citations/20250011660)), so the corners were
+digitized from that map. The pole is the marked star, the scale comes from the 50 km bar,
+and the orientation was checked against Shackleton and de Gerlache craters. Expect errors
+of a few km. One check: a published optimal site in Nobile Rim 2 (−84.20°, 60.70°E) is
+about 5 km from that box's centre.
+
+Typical times (live): one site over 7 days, about 5 s; an Artemis region over 30 days
+(64-80 cells), about 16 s; a 195-cell drawn region over 14 days, about 45 s.
+
 ## Earth line-of-sight windows
 
-In the app: **Mission time range** → **Check Earth contact** (Moon only).
+In the app: **Mission planner** → **Detailed analysis** → **Check Earth contact**, or as part of a site analysis.
 
 
 `GET /api/earth-link?lat=-89.77&lon=-171.87&start=2026-11-15T00:00:00Z&end=2026-12-15T00:00:00Z`
@@ -196,7 +246,7 @@ What the results mean:
 
 ## Sunlight, temperature and site judging
 
-In the app: **Mission time range** → **Sunlight & temperature**. Pick a mission type and
+In the app: **Mission planner** → **Detailed analysis** → **Sunlight & temperature**. Pick a mission type and
 click **Check sunlight & temperature**. **Find better spots within 10 km** ranks a 7×7 grid
 around the site, and **Fly here** moves to a result.
 
@@ -405,6 +455,61 @@ an Earth globe:
   needed. Earth-only scene effects (atmosphere, fog, sky sun/moon) are disabled.
 - Sites come from `GET /api/sites`; a null elevation is drawn at 0 m rather than dropped.
 - Without WebGL the panel says so instead of showing a blank canvas.
+- **The 87–90° S cap is drawn by its own mesh** (`polarCap.ts`), not by globe tiles.
+  Cesium's globe tiles follow latitude/longitude, so near the pole they become slivers:
+  covering a 20 km disc at ~10 m detail took about 32,768 tiles, each built on the main
+  thread (~0.9 ms), which made loading and camera movement very slow. The cap uses
+  square tiles on a south-polar stereographic quadtree instead: 64 × 64 cells per
+  tile, from 2.56 km cells down to the mosaic's native 5 m. Detail is chosen so cells
+  are at most ~2 px apart on screen, and tile building is limited to ~10 ms per frame.
+  The globe is clipped at 87° S (`Globe.cartographicLimitRectangle`). Each vertex is
+  shaded with the same fixed-light hillshade formula as the former relief image.
+  - Measured in Chrome (AMD Radeon, 1280×800) at Site04: orbiting near the pole went
+    from 8.5 fps (and over 95 s of main-thread blocking after one drag) to 40 fps with
+    no blocking. A close-up view loads in about 4 s with ~430 tiles drawn.
+  - Seam with the globe: past 87° S the cap continues as a band two cells wide, lowered
+    below the surface, so the globe draws over it. Where the globe's coarser edge tiles
+    fall short, the band fills the gap.
+  - `globe.depthTestAgainstTerrain` is on for the Moon. Otherwise Cesium clears the
+    globe's depth and, near the ground, draws a depth plane at the reference sphere,
+    which hides cap terrain below the sphere and lets the cap draw over globe mountains
+    in front of it. Cap tiles use `cull: false`: the cap's own selection already culls
+    to the view, while Cesium's horizon occluder (sized from the globe's terrain) would
+    hide deep crater floors.
+**Orbit drag:** left-drag orbits; up/down is inverted (dragging up tilts the Moon toward you).
+**Sun and Earth discs** are drawn on a sky dome around the camera in their true direction from
+the site and at their true angular size (with a minimum size), always beyond the Moon so ridges
+still hide them. They are created once and only moved, so Sky & time steps keep them visible.
+
+**Surface view (street-level).** Scrolling in toward the ground measures zoom from the
+terrain below, not from the reference sphere. Below **800 m** the camera descends to a
+**2 m** eye height and tilts to the horizon, like an astronaut standing there. **Stand on
+surface** in the toolbar does the same at the screen centre.
+- **Look:** drag to look around. The ground follows the pointer, as in Street View; the
+  view tilts up or down at most 85°.
+- **Move:** W A S D or the arrow keys walk at 30 m/s; hold Shift to run at 240 m/s. The
+  camera follows the terrain at eye height.
+- **Click to jump:** a click (not a drag) jumps there in about half a second (fade out, move,
+  fade in), keeping the view pointed the same way. Near the pole the compass heading can
+  shift a little on long jumps, because meridians converge there.
+- **Scroll:** narrows the lens. At the normal lens, only a long scroll out (about 12 notches
+  without pausing) rises to orbit view at 1,500 m; the overlay shows the progress. A pause
+  of 0.8 s starts the count again.
+- **Leave:** Esc, the overlay's **Leave surface view**, or any camera preset.
+- Movement uses vectors rather than latitude/longitude, so walking across the south pole
+  keeps going straight. The code is in `globe/surfaceView.ts` (math) and
+  `globe/orbitCamera.ts` (controls).
+- Measured in Chrome at Site04: about 34 fps at street level, idle or walking.
+- **Sky & time** (the overlay button on the surface, or **Sky & time** in the camera toolbar in
+  any orbit view, for the selected site): a Stellarium-style time slider for the spot you
+  stand on or the selected site. It stays open when you switch views. It loads 30 days of Sun and Earth positions from JPL Horizons once (every 30 min,
+  `GET /api/positions/track`) and interpolates between them. Play runs at 10 min/s up to
+  1 day/s. **Keep centred** turns the camera to follow the Sun or Earth as time moves. Near
+  the pole the Sun circles just above the horizon and often grazes or hides behind ridges.
+  - Moon pins skip per-pixel depth testing and are hidden only when the Moon's body is
+    between them and the camera, so terrain never slices them. Inside the cap they
+    follow the drawn surface. Clicks inside the cap (pins, region corners) use the
+    depth buffer, and the camera's ground limit uses the cap's heights.
 
 ## Architecture cautions
 
@@ -457,7 +562,7 @@ during energy analysis. The API uses DE440s, the DE440 lunar orientation PCK,
 kernels or DEM files return structured errors. Restart Vite: its proxy now forwards
 both `/api` and `/v1` to `API_PROXY_TARGET`.
 
-Open **Mission planner** in the top navigation bar. Its modal provides all four
+Open **Mission planner** → **Detailed analysis**. It provides all four
 analysis tasks. Point and region solar analysis require no equipment. Mission sizing
 requires demand because sunlight cannot determine equipment consumption. Elevation,
 slope and aspect come from LOLA; **height_m** is only the sensor/panel height above

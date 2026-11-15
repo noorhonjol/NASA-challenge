@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchEnergy, type EnergyTask, type EnergyData } from "../api/energy";
 
+const DATE_PATTERN = String.raw`\s*\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}\s*`;
+const NUMBER_PATTERN = String.raw`\s*(\+|-)?(\d+\.?\d*|\.\d+)([eE](\+|-)?\d+)?\s*`;
+
 const title: Record<EnergyTask, string> = {
   point: "Point solar conditions",
   region: "Region solar analysis",
@@ -21,12 +24,15 @@ export function EnergyPlanner({
   at,
   onClose,
   siteName,
+  embedded = false,
 }: {
   lat: number;
   lon: number;
   at: string;
   onClose: () => void;
   siteName?: string;
+  /** Inside the mission planner's Advanced tab, which has its own close button. */
+  embedded?: boolean;
 }) {
   const [task, setTask] = useState<EnergyTask>("point");
   const [mode, setMode] = useState("auto");
@@ -56,12 +62,14 @@ export function EnergyPlanner({
       {text}
       <input
         name={name}
-        type="number"
+        type="text"
+        inputMode="decimal"
+        spellCheck={false}
         required
         defaultValue={value}
-        min={min}
-        max={max}
-        step="any"
+        pattern={NUMBER_PATTERN}
+        data-min={min}
+        data-max={max}
       />
     </label>
   );
@@ -74,10 +82,23 @@ export function EnergyPlanner({
   async function submit(form: HTMLFormElement) {
     const f = new FormData(form);
     const num = (key: string) => Number(f.get(key));
-    const text = (key: string) => String(f.get(key));
+    const text = (key: string) => String(f.get(key) ?? "").trim().replace(/^(\d{4}-\d{2}-\d{2}) /, "$1T");
+    // Text inputs (not number pickers) keep Western digits; their limits are checked here.
+    for (const input of Array.from(form.querySelectorAll<HTMLInputElement>("input[data-min], input[data-max]"))) {
+      if (input.disabled || (!input.required && !input.value.trim())) continue;
+      const value = Number(input.value.trim());
+      const low = input.dataset.min === undefined ? -Infinity : Number(input.dataset.min);
+      const high = input.dataset.max === undefined ? Infinity : Number(input.dataset.max);
+      if (!input.value.trim() || !Number.isFinite(value) || value < low || value > high) {
+        const name = input.closest("label")?.firstChild?.textContent?.trim() ?? input.name;
+        setError(`${name}: enter a number${Number.isFinite(low) ? ` from ${low}` : ""}${Number.isFinite(high) ? ` up to ${high}` : ""}.`);
+        return;
+      }
+    }
     const rawStart = Date.parse(`${text("start")}Z`);
-    if (!Number.isFinite(rawStart)) {
-      setError("Choose a valid UTC start date.");
+    const inRange = (ms: number) => ms >= Date.parse("2020-01-01T00:00Z") && ms <= Date.parse("2035-12-31T23:59Z");
+    if (!Number.isFinite(rawStart) || !inRange(rawStart)) {
+      setError("Choose a valid UTC start date between 2020 and 2035 (YYYY-MM-DD HH:MM).");
       return;
     }
     const start = new Date(rawStart).toISOString();
@@ -108,7 +129,7 @@ export function EnergyPlanner({
     const rawEnd = Date.parse(`${text("end")}Z`);
     if (
       (task === "region" || task === "windows") &&
-      (!Number.isFinite(rawEnd) || rawEnd <= rawStart)
+      (!Number.isFinite(rawEnd) || !inRange(rawEnd) || rawEnd <= rawStart)
     ) {
       setError("End must follow start.");
       return;
@@ -223,9 +244,11 @@ export function EnergyPlanner({
           <h1>Solar conditions & mission energy</h1>
           {siteName && <p>Site: {siteName} · {initialAt.replace("T", " ")} UTC</p>}
         </div>
-        <button type="button" onClick={onClose}>
-          Close planner
-        </button>
+        {!embedded && (
+          <button type="button" onClick={onClose}>
+            Close planner
+          </button>
+        )}
       </div>
       <div className="energy-content">
         <p>
@@ -349,10 +372,12 @@ export function EnergyPlanner({
                 <input
                   name="start"
                   required
-                  type="datetime-local"
-                  defaultValue={initialAt}
-                  min="2020-01-01T00:00"
-                  max="2035-12-31T23:59"
+                  type="text"
+                  inputMode="numeric"
+                  spellCheck={false}
+                  pattern={DATE_PATTERN}
+                  placeholder="2026-11-15 08:00"
+                  defaultValue={initialAt.replace("T", " ")}
                 />
               </label>
               {(task === "region" || task === "windows") && (
@@ -361,14 +386,16 @@ export function EnergyPlanner({
                   <input
                     name="end"
                     required
-                    type="datetime-local"
+                    type="text"
+                    inputMode="numeric"
+                    spellCheck={false}
+                    pattern={DATE_PATTERN}
                     defaultValue={new Date(
                       Date.parse(`${initialAt}Z`) + 86400000,
                     )
                       .toISOString()
-                      .slice(0, 16)}
-                    min="2020-01-01T00:00"
-                    max="2035-12-31T23:59"
+                      .slice(0, 16)
+                      .replace("T", " ")}
                   />
                 </label>
               )}
@@ -499,10 +526,12 @@ export function EnergyPlanner({
                       <label>
                         Maximum darkness (h) · optional
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
+                          spellCheck={false}
                           name="darkness"
-                          min="0"
-                          step="any"
+                          pattern={NUMBER_PATTERN}
+                          data-min={0}
                           placeholder="Derived from battery and survival load"
                         />
                       </label>
@@ -556,9 +585,11 @@ export function EnergyPlanner({
                     Battery discharge limit (W) · optional
                     <input
                       name="discharge"
-                      type="number"
-                      min="0.001"
-                      step="any"
+                      type="text"
+                      inputMode="decimal"
+                      spellCheck={false}
+                      pattern={NUMBER_PATTERN}
+                      data-min={0.001}
                       placeholder="Needed for peak rate check"
                     />
                   </label>

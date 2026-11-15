@@ -1,5 +1,5 @@
 import {expect,test} from "vitest";
-import {buildLolaHeightmap,decodeGrid,sampleGrid,sampleLola,type Grid,type RegionGrid} from "./lolaSampling";
+import {buildLolaHeightmap,decodeGrid,polarToLatLon,sampleCapXY,sampleGrid,sampleLola,type Grid,type RegionGrid} from "./lolaSampling";
 
 const global: Grid={values:new Int16Array(8).fill(200),width:4,height:2,scale_m:.5,nodata:-32768};
 
@@ -40,4 +40,27 @@ test("the circular mosaic blends to global terrain at its 87 S coverage edge",()
   const latitude=2*Math.atan(500/(2*1737400))-Math.PI/2;
   expect(sampleLola(global,1/90,latitude,0,region)).toBeCloseTo(100,6);
   expect(sampleLola(global,1/90,-Math.PI/2,0,region)).toBeCloseTo(500,6);
+});
+
+test("polar x/y sampling matches lat/lon sampling and converts coordinates both ways",()=>{
+  const values=new Int16Array(401*401);
+  for(let row=0;row<401;row++)for(let col=0;col<401;col++)values[row*401+col]=1000+col*6+row*8;
+  const region: RegionGrid={values,width:401,height:401,scale_m:.5,nodata:-32768,coverage_radius_m:900,
+    bounds_xy_m:[-1002.5,-1002.5,1002.5,1002.5],pixel_center_origin_xy_m:[-1000,1000],resolution_m:5};
+  for(const [x,y] of [[0,0],[123.4,-567.8],[-850,300],[890,0],[0,-905],[40,1001]]) {
+    const [lat,lon]=polarToLatLon(x,y);
+    const rho=2*1737400*Math.tan(Math.PI/4+lat/2);
+    expect(rho*Math.sin(lon)).toBeCloseTo(x,6);
+    expect(rho*Math.cos(lon)).toBeCloseTo(y,6);
+    expect(sampleCapXY(global,1/90,region,x,y,true)).toBeCloseTo(sampleLola(global,1/90,lat,lon,region),9);
+  }
+});
+
+test("polar sampling uses native detail only when asked and when it is loaded",()=>{
+  const region: RegionGrid={values:new Int16Array(16).fill(1000),width:4,height:4,scale_m:.5,nodata:-32768,
+    bounds_xy_m:[-1000,-1000,1000,1000],pixel_center_origin_xy_m:[-750,750],resolution_m:500,
+    sampleDetail:(x)=>x>0?777:NaN};
+  expect(sampleCapXY(global,1/90,region,10,0,true)).toBeCloseTo(777,6);   // detail loaded
+  expect(sampleCapXY(global,1/90,region,10,0,false)).toBeCloseTo(500,6);  // overview requested
+  expect(sampleCapXY(global,1/90,region,-10,0,true)).toBeCloseTo(500,6);  // detail missing -> overview
 });

@@ -1,6 +1,7 @@
 import * as Cesium from "cesium";
 import { fetchTerrainManifest } from "../api/client";
-import { buildLolaHeightmap, decodeGrid, type Grid, type RegionGrid } from "./lolaSampling";
+import { buildLolaHeightmap, decodeGrid, sampleCapXY, type Grid, type RegionGrid } from "./lolaSampling";
+import type { CapSource } from "./polarCap";
 import { createMosaicDetails } from "./mosaicChunks";
 
 const globalGrids=new Map<string,Promise<Grid>>();
@@ -40,7 +41,7 @@ export async function loadLolaTerrain() {
   const details=new Map<string,ReturnType<typeof createMosaicDetails>>();
   const select=async(regionId: string)=>{
     const region=manifest.regions.find(item=>item.region_id===regionId);
-    if(!region) return {provider,imagery:null};
+    if(!region) return {provider,imagery:null,cap:null};
     let pending=cache.get(regionId);
     if(!pending) {
       pending=loadGrid(region.grid_url,region);
@@ -59,7 +60,13 @@ export async function loadLolaTerrain() {
       detail=createMosaicDetails(region,loadGrid);
       details.set(regionId,detail);
     }
-    return {provider:providerFor({...grid,...region,sampleDetail:detail?.sample} as RegionGrid,detail),imagery};
+    const regionGrid={...grid,...region,sampleDetail:detail?.sample} as RegionGrid;
+    // Polar regions are drawn by the polar cap mesh (polarCap.ts) rather than globe tiles.
+    const cap: CapSource|null=region.product_id===81?{
+      sample:(x,y,useDetail)=>sampleCapXY(global,manifest.baseline.pixels_per_degree,regionGrid,x,y,useDetail),
+      prepareDetail:detail?.prepareXY,
+    }:null;
+    return {provider:providerFor(regionGrid,detail),imagery,cap};
   };
   return {provider,select,manifest};
 }

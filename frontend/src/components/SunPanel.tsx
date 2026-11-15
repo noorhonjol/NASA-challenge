@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { fetchSunJudge, fetchSunRegion, stepFor, type CriterionResult, type Judged, type SunPreset, type SunRegion } from "../api/client";
 import { distanceKm, nearbyGrid } from "../nearby";
 import { hours, rangeProblem, toUtc } from "../mission";
+import { Sparkline as Spark } from "./Sparkline";
 
 const PRESETS: { id: SunPreset | ""; label: string }[] = [
   { id: "crewed_landing", label: "Crewed landing" },
@@ -19,24 +20,6 @@ const METRIC_LABEL: Record<string, string> = {
   max_earth_blackout_hours: "Longest Earth blackout (h)",
 };
 const NEARBY_HALF_KM = 10, NEARBY_PER_SIDE = 7, NEARBY_LISTED = 5;
-const W = 314, H = 56;
-
-function Spark({ times, values, min, max, label, unit, className }:
-  { times: string[]; values: number[]; min: number; max: number; label: string; unit: string; className: string }) {
-  const n = values.length;
-  const every = Math.max(1, Math.ceil(n / 400));
-  const pts = values.filter((_, i) => i % every === 0 || i === n - 1)
-    .map((v, i, all) => `${(i / Math.max(all.length - 1, 1) * W).toFixed(1)},${(H - 2 - (v - min) / (max - min || 1) * (H - 4)).toFixed(1)}`);
-  const first = new Date(times[0]), last = new Date(times[n - 1]);
-  const day = (d: Date) => d.toLocaleDateString("en-GB", { timeZone: "UTC", day: "numeric", month: "short" });
-  return <figure className="sun-spark">
-    <figcaption>{label}<span>{min.toFixed(0)}–{max.toFixed(0)} {unit}</span></figcaption>
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${label} from ${day(first)} to ${day(last)}`}>
-      <polyline className={className} points={pts.join(" ")} fill="none" />
-    </svg>
-    <div className="sun-spark-axis"><span>{day(first)}</span><span>{day(last)}</span></div>
-  </figure>;
-}
 
 function target(c: CriterionResult) {
   return Array.isArray(c.target) ? `${c.target[0]}–${c.target[1]}` : `${c.op} ${c.target}`;
