@@ -146,7 +146,10 @@ def sample_heights(m, root: Path, latitudes, longitudes):
         rows = (origin_y - y[inside]) / region["resolution_m"]
         local = bilinear(pixels, columns, rows)
         # Blend a 250 m perimeter to the coarse baseline to avoid artificial walls.
+        # Circular mosaics (coverage_radius_m) fade at the circle, not only the square.
         edge_distance = np.minimum.reduce([x[inside]-left, right-x[inside], y[inside]-bottom, top-y[inside]])
+        if "coverage_radius_m" in region:
+            edge_distance = np.minimum(edge_distance, region["coverage_radius_m"] - np.hypot(x[inside], y[inside]))
         weight = np.clip(edge_distance / 250, 0, 1)
         weight = weight * weight * (3 - 2 * weight)
         valid = np.isfinite(local)

@@ -28,16 +28,31 @@ export function centerFrame(position: Vector, preferredUp: Vector = { x: 0, y: 0
   return { position: { ...position }, direction, up: tangentUp(direction, preferredUp) };
 }
 
+/** Unit vector of `v` with its radial part removed, or null when `v` is nearly radial. */
+function tangent(v: Vector, radial: Vector): Vector | null {
+  const t = add(v, scale(radial, -dot(v, radial)));
+  return magnitude(t) < 1e-6 ? null : unit(t);
+}
+
+/**
+ * Moves the camera over the sphere as one rigid rotation about the body center,
+ * applied to position, direction and up alike. Tilt, roll and look direction
+ * relative to the local vertical are therefore unchanged by orbiting.
+ * Drag axes follow the screen: vertical drags rotate about the camera's
+ * horizontal (right) axis, horizontal drags about the matching tangent axis.
+ */
 export function orbitFrame(frame: CameraFrame, horizontal: number, vertical: number): CameraFrame {
   const radius = magnitude(frame.position);
-  const centered = centerFrame(frame.position, frame.up);
-  const right = unit(cross(centered.direction, centered.up));
-  const yawedPosition = rotate(frame.position, centered.up, horizontal);
-  const yawedRight = rotate(right, centered.up, horizontal);
-  const nextPosition = rotate(yawedPosition, yawedRight, vertical);
-  const nextUp = rotate(centered.up, yawedRight, vertical);
-  // Normalize explicitly to avoid accumulating radius drift over many drags.
-  return centerFrame(scale(unit(nextPosition), radius), nextUp);
+  const radial = unit(frame.position);
+  const cameraRight = cross(frame.direction, frame.up);
+  // A camera rolled so its right axis points straight up or down: use its up axis instead.
+  const tangentRight = tangent(cameraRight, radial);
+  const yawAxis = tangentRight ? unit(cross(radial, tangentRight)) : tangent(frame.up, radial) ?? centerFrame(frame.position).up;
+  const pitchAxis = rotate(tangentRight ?? unit(cross(yawAxis, radial)), yawAxis, horizontal);
+  const turn = (v: Vector) => rotate(rotate(v, yawAxis, horizontal), pitchAxis, vertical);
+  // Normalize explicitly to avoid accumulating radius or basis drift over many drags.
+  const direction = unit(turn(frame.direction));
+  return { position: scale(unit(turn(frame.position)), radius), direction, up: tangentUp(direction, turn(frame.up)) };
 }
 
 export function lookFrame(frame: CameraFrame, horizontal: number, vertical: number): CameraFrame {

@@ -80,7 +80,7 @@ test("pin tile carries its title, coordinates and first-page UTC time into calcu
   fireEvent.change(screen.getByLabelText(/^Latitude/),{target:{value:'-89.7'}});
   fireEvent.change(screen.getByLabelText(/^Longitude/),{target:{value:'-12.3'}});
   fireEvent.change(screen.getByLabelText('Pin title'),{target:{value:'Rim candidate A'}});
-  fireEvent.change(screen.getByLabelText('Date & time (UTC)'),{target:{value:'2026-12-03T05:30'}});
+  fireEvent.change(screen.getByLabelText('Mission start (UTC)'),{target:{value:'2026-12-03T05:30'}});
   fireEvent.click(screen.getByRole('button',{name:'Pin these coordinates'}));
   expect(screen.getByRole('article',{name:'Selected mission pin'})).toHaveTextContent('Rim candidate A');
   fireEvent.click(screen.getByRole('button',{name:'Calculate energy for this pin'}));
@@ -94,7 +94,7 @@ test("pin tile carries its title, coordinates and first-page UTC time into calcu
   expect(url).toContain('lat=-89.7');expect(url).toContain('lon=-12.3');expect(url).toContain('2026-12-03T05%3A30');
   fireEvent.click(within(dialog).getByRole('button',{name:'Close planner'}));
   fireEvent.change(screen.getByLabelText('Pin title'),{target:{value:'Rim candidate B'}});
-  fireEvent.change(screen.getByLabelText('Date & time (UTC)'),{target:{value:'2026-12-05T09:00'}});
+  fireEvent.change(screen.getByLabelText('Mission start (UTC)'),{target:{value:'2026-12-05T09:00'}});
   fireEvent.click(screen.getByRole('button',{name:'Add pin on Moon'}));
   fireEvent.click(screen.getByRole('button',{name:'Place test pin'}));
   fireEvent.click(screen.getByRole('button',{name:'Calculate energy for this pin'}));
@@ -103,4 +103,22 @@ test("pin tile carries its title, coordinates and first-page UTC time into calcu
   expect(within(dialog).getByLabelText('Time (UTC)')).toHaveValue('2026-12-05T09:00');
   expect(within(dialog).queryByRole('region',{name:'Energy results'})).not.toBeInTheDocument();
   expect(screen.getByRole('option',{name:'Rim candidate A'})).toBeInTheDocument();
+});
+
+test("one mission time range drives Show Sun & Earth and both mission checks", async () => {
+  const fetch = vi.fn(async (url: string) => ({ ok: true, json: async () => url.startsWith("/api/positions") ? {
+    at_utc: "2027-03-10T06:30:00Z", latitude_deg: -85, longitude_deg: 0, elevation_m: 0, source: "JPL Horizons",
+    source_url: "", horizon_model: "", sun: { azimuth_deg: 1, elevation_deg: 1, above_horizon: true },
+    earth: { azimuth_deg: 2, elevation_deg: 2, above_horizon: true } } : [] }));
+  vi.stubGlobal("fetch", fetch);
+  render(<App />);
+  expect(screen.queryByLabelText(/^Date & time/)).not.toBeInTheDocument();
+  expect(screen.getAllByLabelText("Mission start (UTC)")).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText("Mission start (UTC)"), { target: { value: "2027-03-10T06:30" } });
+  fireEvent.click(screen.getByRole("button", { name: "Show Sun & Earth at mission start" }));
+  await vi.waitFor(() => expect(fetch.mock.calls.some(([url]) => url.startsWith("/api/positions"))).toBe(true));
+  const positions = new URL(fetch.mock.calls.find(([url]) => url.startsWith("/api/positions"))![0], "http://x");
+  expect(positions.searchParams.get("at")).toBe("2027-03-10T06:30:00Z");
+  expect(screen.getByRole("button", { name: "Check Earth contact" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Check sunlight & temperature" })).toBeInTheDocument();
 });

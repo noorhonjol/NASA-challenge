@@ -62,3 +62,90 @@ export async function fetchTerrainManifest(signal?: AbortSignal): Promise<Terrai
   if (!Array.isArray(manifest.regions) || manifest.reference_radius_m !== 1737400) throw new Error("Invalid lunar terrain manifest");
   return manifest;
 }
+
+export type LinkStatus = "available" | "blocked" | "unknown";
+export type EarthLinkWindow = {
+  status: LinkStatus; start_utc: string; end_utc: string; duration_hours: number;
+  clipped_start: boolean; clipped_end: boolean;
+  min_clearance_deg: number | null; max_clearance_deg: number | null;
+  causes: ("lunar_limb" | "terrain")[];
+};
+export type EarthLink = {
+  location: {latitude_deg: number; longitude_deg: number; ground_elevation_m: number | null; altitude_m: number};
+  period: {start_utc: string; end_utc: string; step_minutes: number; samples: number; duration_hours: number};
+  terrain_model: {type: "lola" | "smooth_sphere"; site_resolution_m?: number; max_range_km?: number};
+  summary: {
+    available_hours: number; available_fraction: number; blocked_hours: number; unknown_hours: number;
+    available_windows: number; blocked_windows: number; unknown_windows: number;
+    longest_usable_window_hours: number; longest_blackout_hours: number; first_contact_after_hours: number | null;
+  };
+  windows: EarthLinkWindow[];
+  warnings: string[];
+  rf: {assessed: boolean; note: string};
+};
+
+// Smallest ephemeris step that keeps a request at or under ~1,500 Horizons samples.
+// The backend refines Earth's track between samples, so coarser steps stay accurate.
+const LINK_STEPS = [10, 15, 30, 60, 120, 180, 360];
+export const stepFor = (spanMs: number) => LINK_STEPS.find(m => spanMs / 60000 / m <= 1500) ?? 360;
+
+export async function fetchEarthLink(lat: number, lon: number, start: Date, end: Date, stepMinutes: number, signal?: AbortSignal): Promise<EarthLink> {
+  const query = new URLSearchParams({
+    lat: String(lat), lon: String(lon), step_minutes: String(stepMinutes),
+    start: start.toISOString().replace(".000Z", "Z"), end: end.toISOString().replace(".000Z", "Z"),
+  });
+  const res = await fetch(`/api/earth-link?${query}`, { signal });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = body?.detail;
+    const message = typeof detail === "string" ? detail : Array.isArray(detail) && typeof detail[0]?.msg === "string" ? detail[0].msg : null;
+    throw new Error(message ?? `Earth link request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export type SunPreset = "crewed_landing" | "lander_survival" | "solar_rover" | "ice_cold_trap";
+export type CriterionResult = {
+  metric: string; op: string; target: number | [number, number]; actual: number | null;
+  pass: boolean; required: boolean; weight: number;
+};
+export type RankedPoint = { lat: number; lon: number; elevation_m: number; score: number; verdict: "PASS" | "FAIL"; criteria: CriterionResult[] };
+export type Judged = { summary: { n_cells: number; n_pass: number; best_score: number }; ranking: RankedPoint[] };
+type Band = { mean: number[]; min: number[]; max: number[] };
+export type SunRegion = {
+  meta: { step_min: number; n_points: number; n_times: number; terrain_model: { type: "lola" | "smooth_sphere"; site_resolution_m?: number[] } };
+  times: string[];
+  region_timeseries: { sun_fraction: Band; irradiance_wm2: Band; surface_temp_K?: Band; earth_visible?: Band };
+  cell_stats: Record<string, number[]>;
+  judge?: Judged & { criteria: unknown[] };
+  warnings: string[];
+};
+export type SunArea = { points: [number, number][]; start: Date; stop: Date; stepMin: number; preset?: SunPreset };
+
+const iso = (d: Date) => d.toISOString().replace(".000Z", "Z");
+
+async function postJson<T>(url: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    const detail = payload?.detail;
+    const message = typeof detail === "string" ? detail : Array.isArray(detail) && typeof detail[0]?.msg === "string" ? detail[0].msg : null;
+    throw new Error(message ?? `Request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+/** Sunlight, temperature and (with a preset) the verdict for each point, in one request. */
+export function fetchSunRegion(area: SunArea, signal?: AbortSignal): Promise<SunRegion> {
+  return postJson("/api/sun/region", {
+    points: area.points, start: iso(area.start), stop: iso(area.stop), step_min: area.stepMin,
+    thermal_model: true, grid_series: false, ...(area.preset ? { preset: area.preset } : {}),
+  }, signal);
+}
+
+export function fetchSunJudge(area: SunArea & { preset: SunPreset; topN: number }, signal?: AbortSignal): Promise<Judged> {
+  return postJson("/api/sun/judge", {
+    points: area.points, start: iso(area.start), stop: iso(area.stop), step_min: area.stepMin,
+    preset: area.preset, top_n: area.topN,
+  }, signal);
+}

@@ -56,8 +56,9 @@ frontend does not use them. Restart the API and Vite after changing dependencies
 Choose **Moon** or **Earth**, enter latitude/longitude, and click **Fly to coordinates**.
 This does not call Horizons or require the site database. Moon imagery is local;
 Earth imagery streams from Esri World Imagery. Both have bundled NASA global images.
-Left-drag orbits on a sphere centered on the selected body,
-preserving the current radius and pointing toward its center. Scroll changes radius
+Left-drag orbits on a sphere centered on the selected body, preserving the current
+radius. Orbiting moves the camera as one rotation about the body center, so tilt,
+roll and look direction relative to the local vertical stay as they were. Scroll changes radius
 along the same radial line. Right-drag looks around from a fixed position; Shift +
 right-drag rolls around the viewing ray. **Center view**, or R while the globe has
 focus, restores the center-facing view without moving the camera. **Whole globe**
@@ -129,6 +130,122 @@ altitude is meters above the lunar reference ellipsoid. Explicit timezone requir
 Dates are limited to 1550–2649. JPL uses UT1 before 1962; modern dates use UTC.
 Upstream failures return 502 with a retryable error. Requests use observer quantity 4,
 Moon center `coord@301`, Sun target 10 and Earth target 399.
+
+`/api/positions` stays flat-horizon only. For terrain-aware Earth visibility over a
+period, use `/api/earth-link` below.
+
+## Earth line-of-sight windows
+
+In the app: **Mission time range** → **Check Earth contact** (Moon only).
+
+
+`GET /api/earth-link?lat=-89.77&lon=-171.87&start=2026-11-15T00:00:00Z&end=2026-12-15T00:00:00Z`
+
+Given a point on the Moon and a period, it returns when the antenna has an unobstructed
+line of sight to Earth's center and when it doesn't. It accounts for lunar curvature,
+local mountains and crater rims (LOLA), antenna height, and Earth hidden by the Moon
+itself. Nothing is stored; it needs JPL access, but no database.
+
+How it works:
+1. **Earth's track.** One JPL Horizons request returns Earth's azimuth, elevation and
+   distance from the site every `step_minutes`. Earth barely moves in the lunar sky; near
+   the south pole its few-degree wobble (libration) makes it rise and set.
+2. **Skyline.** Rays are cast across the LOLA grid, 1° apart all round, then 0.1° apart
+   wherever Earth actually passes low. Each ray samples terrain from 25 m out (steps grow
+   to 900 m) up to the distance beyond which no terrain could rise above the sight line.
+   The Moon is treated as a ball, so distant ground drops away; a higher antenna sees
+   farther and gets a lower skyline.
+3. **Compare.** clearance = Earth elevation − skyline in Earth's direction. Between
+   Horizons samples, Earth's track is interpolated in steps of 0.05° or less, so a narrow
+   peak between two samples is not skipped. Each status change is located to the second.
+4. **Windows.** The period is divided into `available` / `blocked` / `unknown` windows
+   with no gaps or overlaps. Each blocked window has a cause: `lunar_limb` (Earth is
+   below the horizon a smooth Moon would have here) or `terrain` (a ridge or rim is in
+   the way).
+
+| Param | Default | Notes |
+|---|---|---|
+| `lat`, `lon` | required | MOON_ME degrees, longitude east-positive (−180..180). Latitude is moved to ±89.9999 at the exact pole (azimuth is undefined there); the response reports both values |
+| `start`, `end` | required | Timezone-aware ISO times, whole seconds, years 1550–2649, `end > start`, at most 366 days |
+| `step_minutes` | 30 | 1–1440. At most 20,000 samples; otherwise 422 with the smallest allowed step |
+| `altitude_m` | 2 | Antenna height, 0–100,000 m |
+| `altitude_reference` | `ground` | `ground` = above local terrain; `sphere` = above the 1,737.4 km datum (422 if that is underground) |
+| `min_clearance_deg` | 0 | Margin above the skyline (−1..10). About 0.95 requires the whole Earth disc to be clear |
+| `min_window_minutes` | 0 | Shorter available windows don't count as usable contact |
+| `min_availability_fraction`, `max_blackout_hours`, `max_first_contact_hours` | none | Optional mission limits, assessed as `pass` / `fail` / `inconclusive`; `criteria_not_specified` when none are given |
+| `include_samples` | false | Adds each Horizons epoch: azimuth, elevation, Earth's angular radius, skyline, clearance, `los`, status, cause |
+| `include_skyline` | false | Adds the 1° terrain skyline (360 values) |
+
+The response contains `location`, `period`, `target`, `criteria`, `terrain_model`,
+`resolution`, `summary` (hours per status, window counts, usable fraction, longest
+window, longest blackout including the period edges, time to first contact),
+`assessment`, `rf`, `windows`, `warnings`, `limitations` and `source`.
+
+What the results mean:
+- This is **geometric line of sight to Earth's center**, not a radio link: `rf.assessed`
+  is always `false`. There is no link budget, Fresnel zone, ground-station visibility or
+  DSN schedule, and orbiters are out of scope.
+- `los` per sample uses Earth's disc: `clear`, `grazing` (partly above the skyline),
+  `blocked`, or `unknown`.
+- If terrain isn't prepared, the request still succeeds with `terrain_model.type =
+  smooth_sphere` and a warning. Times when the Moon itself must hide Earth are
+  `blocked`; everything else is `unknown`, never assumed clear.
+- Sites outside the 87–90°S high-resolution mosaic, and terrain beyond about 91 km from
+  the pole, use the ~1.9 km global grid. A warning says so when it applies at the site.
+- Errors: 422 for invalid input, 502 when Horizons fails.
+
+## Sunlight, temperature and site judging
+
+In the app: **Mission time range** → **Sunlight & temperature**. Pick a mission type and
+click **Check sunlight & temperature**. **Find better spots within 10 km** ranks a 7×7 grid
+around the site, and **Fly here** moves to a result.
+
+Merged from the `lunar_sun` prototype, reusing this backend's Horizons client, LOLA
+terrain and skyline rays (the same as `/api/earth-link`). No database is needed.
+
+| Endpoint | Input | Output |
+|---|---|---|
+| `GET /api/sun/point` | `lat`, `lon`, `time` (default now), `power_threshold_wm2`, `events`, `temperature` | Sun state (`full_sun`, `partial_sun`, `terrain_shadow`, `night`), angles, irradiance, panel advice, next sunrise and sunset, 360-value skyline |
+| `POST /api/sun/region` | `region` (lat/lon box, up to 60×60) or `points`, `start`, `stop`, `step_min`; optional `thermal_model`, `earth`, `grid_series`, `format: "csv"`, `preset` / `criteria` | Per-point statistics, region time series, grid maps; with a preset or criteria also `judge` |
+| `POST /api/sun/judge` | area and period as above, plus `preset` and/or `criteria`, `top_n` | Pass/fail per criterion, weighted score, ranking, score map |
+| `GET /api/sun/metrics` | | Metric names and presets |
+
+How it works:
+1. **Sun and Earth positions.** One Horizons series per body at a reference site near
+   the middle of the points. The body's position is rebuilt as site + direction × range
+   and viewed from every point, so the shift across a region is included. Checked live:
+   positions rebuilt from one site match Horizons at a site 300 km away to within 0.00001°.
+2. **Terrain.** Each point gets a ground-level skyline (1° apart for up to 25 points,
+   5° for more) and a slope from LOLA heights one grid cell to each side.
+3. **Sunlight.** The visible part of the Sun's disc above the skyline sets the direct
+   sunlight: 1,361 W/m² × (1 AU / distance)² × visible fraction, on a sun-tracking panel,
+   a flat panel and the sloped ground.
+4. **Temperature.** A 1-D regolith heat model (Hayne et al. 2017) warms up over one
+   synodic month before `start`, then runs through the period.
+5. **Judging.** Each criterion is `{metric, op, value, weight, required}` with
+   `op` one of `>= <= > < == between`. Score = weighted share of criteria met; PASS needs
+   every required criterion. Presets: `crewed_landing` (slope, Earth visibility,
+   sunlight), `lander_survival`, `solar_rover`, `ice_cold_trap`.
+
+Metrics: `illumination_fraction`, `max_darkness_hours`, `mean_irradiance_wm2`,
+`energy_tracking_kwh_m2`, `energy_flat_kwh_m2`, `slope_deg`, `elevation_m`, `min_temp_K`,
+`max_temp_K`, `mean_temp_K`, `temp_range_K`, `earth_visible_fraction`,
+`max_earth_blackout_hours`. Earth metrics use the same ground-level skyline at the sample
+times; at −88.85°, 90° for December 2026 they agree with `/api/earth-link` (41.9% vs 42.0%).
+
+Limits: up to 900 points, 8,000 time steps per body (spin-up included) and 2,000,000
+points × steps per request. A single site with temperature over 7 days takes about 12 s.
+
+What the results mean:
+- Direct sunlight only: no light or heat reflected from nearby terrain, so permanently
+  shadowed floors read about 10–30 K too cold.
+- Without prepared terrain the request still succeeds on a smooth sphere, with a warning
+  that sunlight and Earth visibility are overstated.
+- Errors: 422 for invalid input, 502 when Horizons fails.
+
+Not merged from the prototype: its offline astropy ephemeris fallback (Horizons is the
+single source here), its rasterio GeoTIFF loader (`LOLA_DEM_PATH`; the prepared LOLA
+grids are used instead), its standalone Plotly page, and its `/v1/...` paths.
 
 Apply migration V2 using `docker compose run --rm flyway` to drop `ephemeris_samples`
 if it exists; previously applied migrations are unchanged. Restart the backend after
