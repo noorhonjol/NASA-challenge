@@ -315,6 +315,34 @@ Six notes from the team, all applied:
   keep-centred (the sight line meets it); Earth shows at +4° in both views; a click jump takes
   about 0.5 s; 4 notches do not leave, a pause resets, 18 more leave; no page errors.
 
+### 3.14 Mission planner reworked: best windows and places (2026-11-15)
+
+The Plan tab no longer analyses one fixed period. It searches a long period for the best
+mission windows of a given length and, for each, the best base, solar panel and antenna spots.
+- **Criteria** (stacked cards, basic choice plus Advanced): power (low/mid/high tier, sun-tracking
+  panels or fixed; advanced energy kWh, panel area, efficiency, battery hours), heat (crewed /
+  robotic / cold-trap science; advanced min/max K), communication (very frequent / frequent /
+  occasional; advanced Earth-in-view share and longest blackout), and base slope limit.
+- **Backend:** `app/mission_search.py` (pure) and `POST /api/mission/search` (background job,
+  progress) + `GET /api/mission/search/{id}` + `GET /api/mission/search/options` in
+  `routers/mission.py`. Offline only: heat is computed from the same SPICE/LOLA sunlight series,
+  no Horizons. Window scoring uses cumulative sums and run lengths; the best windows are picked
+  so that no two overlap by more than half. Limits: search 180 days, mission 60 days, 120 cells.
+- **Frontend:** `MissionSearch.tsx` (form, results, compare spots), `missionScores.ts` (colour
+  scale, inverse-distance estimate), `globe/scoreSurface.ts` (mesh of the sampled grid, subdivided
+  to about 300 m with bilinear scores, draped 40 m above the cap/globe terrain as a translucent
+  primitive; rebuilt only when its data or the terrain changes). Spot comparison reuses
+  pin-placement clicks (`probing` in `App.tsx`). Default search period: 60 days from now.
+- **Re-centre button** at the bottom right of the globe (R still works).
+- The old `/api/mission/analyze` endpoint and its tests remain; the UI no longer calls it.
+- Tests: backend 154 (14 new in `tests/test_mission_search.py`: run lengths vs brute force,
+  scoring, fixed panels, window score, overlap rule, needs, API job, validation); frontend 92
+  (planner rewritten for the search; surface mesh tests).
+- Verified in headless Chrome: Artemis III "de Gerlache Rim 2", 60 days, 14-day mission: 100 cells
+  in 10 s; ranked windows; score surface drapes on the terrain and recolours by layer; Fly here;
+  a clicked spot got an estimate, then an exact result; Re-centre returns to a nadir view; no
+  page errors.
+
 ## 4. Verified live (real LOLA terrain and Horizons)
 
 - Earth-link at −89.9°, 0° over Dec 1–8, 2026: blocked all week. At −85°, 0°: visible for the first

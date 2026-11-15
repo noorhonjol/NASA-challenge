@@ -36,6 +36,9 @@ function App() {
   const [plannerKey, setPlannerKey] = useState(0);
   const [missionPins, setMissionPins] = useState<Site[]>([]);
   const [pinPlacement, setPinPlacement] = useState(false);
+  // Comparing spots: the next click on the Moon goes to the planner instead of dropping a pin.
+  const [probing, setProbing] = useState(false);
+  const [probe, setProbe] = useState<{ lat: number; lon: number; elevation: number } | null>(null);
   const [pinTitle, setPinTitle] = useState("");
   const [drawing, setDrawing] = useState(false);
   const [draft, setDraft] = useState<LatLon[]>([]);
@@ -58,7 +61,7 @@ function App() {
   const [lat, setLat] = useState("-89.45");
   const [lon, setLon] = useState("129.2");
   const [height, setHeight] = useState("0");
-  const [mission, setMission] = useState(() => { const start = new Date().toISOString().slice(0, 16); return { start, end: addDays(start, 7) }; });
+  const [mission, setMission] = useState(() => { const start = new Date().toISOString().slice(0, 16); return { start, end: addDays(start, 60) }; });
   const [request, setRequest] = useState<{lat: number; lon: number; height: number; at: string} | null>(null);
   const [data, setData] = useState<Positions | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -137,15 +140,16 @@ function App() {
     return { latitude, longitude, elevation };
   };
   const checkSite = () => { setPlannerKey(key => key + 1); setPlannerOpen(true); };
-  const startDrawing = () => { setPinPlacement(false); setDraft([]); setDrawing(true); };
+  const startDrawing = () => { setPinPlacement(false); setProbing(false); setDraft([]); setDrawing(true); };
   const stopDrawing = (keep: boolean) => {
     if (keep) setDrawnPolygon(draft);
     setDrawing(false); setDraft([]);
   };
   const overlay = useMemo(() => drawing ? { polygon: draft, closed: false, spots: [] }
     : plannerOverlay ? { ...plannerOverlay, closed: true } : null, [drawing, draft, plannerOverlay]);
-  const globeOptions = useMemo(() => ({ body: "moon" as const, target, flyToTarget, flightMode, terrainEnabled, terrainRegion, pinPlacement, drawing, overlay }),
-    [target, flyToTarget, flightMode, terrainEnabled, terrainRegion, pinPlacement, drawing, overlay]);
+  const globeOptions = useMemo(() => ({ body: "moon" as const, target, flyToTarget, flightMode, terrainEnabled, terrainRegion,
+    pinPlacement: pinPlacement || probing, drawing, overlay }),
+    [target, flyToTarget, flightMode, terrainEnabled, terrainRegion, pinPlacement, probing, drawing, overlay]);
   const validStart = Number.isFinite(Date.parse(`${mission.start}Z`));
 
   return <main>
@@ -156,7 +160,8 @@ function App() {
       <button type="button" disabled={draft.length < 3} onClick={() => stopDrawing(true)}>Finish region</button>
       <button type="button" onClick={() => stopDrawing(false)}>Cancel</button>
     </div>}
-    <LunarGlobe sites={allSites} positions={data} options={globeOptions} onSiteSelect={chooseSite} onPinPlace={addPin}
+    <LunarGlobe sites={allSites} positions={data} options={globeOptions} onSiteSelect={chooseSite}
+      onPinPlace={point => { if (probing) { setProbing(false); setProbe({ lat: point.latitude, lon: point.longitude, elevation: point.elevation }); } else addPin(point); }}
       onPolygonPoint={point => setDraft(points => [...points, [Math.round(point.latitude * 1e5) / 1e5, Math.round(point.longitude * 1e5) / 1e5]])}
       actionsRef={globeActions} initialView="pole" onSurfaceChange={active => { if (active) setPlannerOpen(false); }}
       dataDetails={<div className="terrain-controls">
@@ -171,7 +176,7 @@ function App() {
         {allSites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}
       </select></label>
       <div className="pin-row">
-        <button type="button" aria-pressed={pinPlacement} onClick={() => setPinPlacement(value => !value)}>{pinPlacement ? "Cancel pin" : "Drop a pin"}</button>
+        <button type="button" aria-pressed={pinPlacement} onClick={() => { setProbing(false); setPinPlacement(value => !value); }}>{pinPlacement ? "Cancel pin" : "Drop a pin"}</button>
         {pinPlacement && <label>Pin name (optional)<input value={pinTitle} maxLength={100} placeholder="e.g. Shackleton candidate A" onChange={event => setPinTitle(event.target.value)} /></label>}
       </div>
       {pinPlacement && <p role="status" className="hint">Click the Moon where the pin should go.</p>}
@@ -227,6 +232,7 @@ function App() {
         sites={allSites} mission={mission} onMissionChange={(start, end) => { clearSky(); setMission({ start, end }); }}
         drawn={drawnPolygon} onDraw={startDrawing} onFly={pickSpot} onOverlay={setPlannerOverlay}
         onClose={() => setPlannerOpen(false)}
+        probing={probing} onProbe={on => { setProbing(on); if (on) setPinPlacement(false); }} probe={probe}
         advanced={location && validStart ? <DetailedTabs note={`Detailed tools for ${location.name}. They use the same mission time range.`} tabs={[
           { id: "power", label: "Power", content: <EnergyPlanner key={`${location.lat}:${location.lon}:${mission.start}`} lat={location.lat} lon={location.lon} at={mission.start} siteName={location.name} embedded onClose={() => setPlannerOpen(false)} /> },
           { id: "heat", label: "Heat & sunlight", content: <SunPanel key={`sun|${location.lat}|${location.lon}|${mission.start}|${mission.end}`} lat={location.lat} lon={location.lon} start={mission.start} end={mission.end} onPick={pickSpot} /> },

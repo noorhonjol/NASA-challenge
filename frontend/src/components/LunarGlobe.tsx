@@ -219,6 +219,8 @@ export function LunarGlobe({
           onClick={() => setSkyOpen(open => !open)}>Sky &amp; time</button>}
         {options?.body !== "earth" && <button type="button" className="camera-primary" disabled={!ready} onClick={() => globeRef.current?.surface?.("enter")}>Stand on surface</button>}
       </div>}
+      {!surface && supported && <button type="button" className="recentre-button" disabled={!ready} title="Point the camera at the centre of the Moon again (shortcut: R)"
+        aria-label="Re-centre the view" onClick={() => globeRef.current?.view?.("center")}><span aria-hidden="true">⌖</span> Re-centre</button>}
       {skyOpen && skyStatus && <SkyTimePanel key={siteSky ? `${siteSky.latitude},${siteSky.longitude}` : "standing"} status={skyStatus}
         onPositions={setSkyPositions} onLook={lookAt} onClose={() => setSkyOpen(false)} />}
       {surface && <SurfaceHud status={surface} skyOpen={skyOpen} onSky={() => setSkyOpen(open => !open)} onExit={() => globeRef.current?.surface?.("exit")} />}

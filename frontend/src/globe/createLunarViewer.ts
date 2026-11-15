@@ -7,6 +7,7 @@ import { setupOrbitCamera } from "./orbitCamera";
 import { centerFrame } from "./orbitCameraMath";
 import { loadLolaTerrain } from "./lolaTerrain";
 import { createPolarCap, type PolarCap } from "./polarCap";
+import { scoreSurfacePrimitive } from "./scoreSurface";
 
 export type GlobeOptions = {
   body: "moon" | "earth";
@@ -22,7 +23,9 @@ export type GlobeOptions = {
   overlay?: {
     polygon: [number, number][] | null;
     closed: boolean;
-    spots: { lat: number; lon: number; label: string; pass: boolean }[];
+    spots: { lat: number; lon: number; label: string; pass: boolean; color?: string }[];
+    /** Score surface: values (0-100) at grid cell centres, drawn smoothly over the terrain. */
+    surface?: { cells: [number, number][]; cellRows: number[]; cellCols: number[]; values: (number | null)[] } | null;
   } | null;
 };
 
@@ -232,6 +235,7 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
   let destroyed = false;
   let lastFlight = options?.flyToTarget ?? 0;
   let skyImagesPromise: ReturnType<typeof makeSkyImages> | null = null;
+  let surfacePrimitive: Cesium.Primitive | null = null, shownSurfaceKey = "";
   // The Sun and Earth discs live in their own data source and are created once, then only their
   // direction and label change. Removing and re-adding them (every Sky & time step) left Cesium's
   // reused billboard without its texture: the label showed, the disc did not.
@@ -371,6 +375,15 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
   }
 
   if (isMoon && options?.overlay) drawOverlay(options.overlay);
+  // The planner's score surface is a primitive: rebuilt only when its data (or the terrain under it) changes.
+  const surface = isMoon ? options?.overlay?.surface ?? null : null;
+  const surfaceKey = surface ? JSON.stringify(surface) + (cap ? "|cap" : "") : "";
+  if (surfaceKey !== shownSurfaceKey) {
+    if (surfacePrimitive) scene.primitives.remove(surfacePrimitive);
+    surfacePrimitive = surface ? scoreSurfacePrimitive(surface, ellipsoid, groundAt) : null;
+    if (surfacePrimitive) scene.primitives.add(surfacePrimitive);
+    shownSurfaceKey = surfaceKey;
+  }
 
   if (positions && isMoon) {
     const origin = Cesium.Cartesian3.fromDegrees(
@@ -492,7 +505,7 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
     }));
     overlay.spots.forEach((spot, i) => viewer.entities.add({ id: `mission-spot-${i}`, name: spot.label,
       position: Cesium.Cartesian3.fromDegrees(spot.lon, spot.lat, groundAt(spot.lat, spot.lon) + lift, ellipsoid),
-      point: { pixelSize: 11, color: Cesium.Color.fromCssColorString(spot.pass ? "#5fd39a" : "#ff9b8f"),
+      point: { pixelSize: 11, color: Cesium.Color.fromCssColorString(spot.color ?? (spot.pass ? "#5fd39a" : "#ff9b8f")),
         outlineColor: Cesium.Color.BLACK, outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY },
       label: { text: spot.label, font: "13px system-ui, sans-serif", pixelOffset: new Cesium.Cartesian2(12, -12),
         horizontalOrigin: Cesium.HorizontalOrigin.LEFT, showBackground: true,

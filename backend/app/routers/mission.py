@@ -161,3 +161,127 @@ async def analyze(req: AnalyzeRequest):
         except HorizonsError as exc:
             result["warnings"].append(f"Refined Earth windows unavailable: {exc}")
     return result
+
+
+# ---------------------------------------------------------------- window search (background job)
+import asyncio  # noqa: E402
+import uuid  # noqa: E402
+
+from .. import mission_search as search_engine  # noqa: E402
+
+
+class PowerNeeds(BaseModel):
+    tier: Literal["low", "mid", "high"] = "mid"
+    load_w: float | None = Field(None, gt=0, le=1_000_000, description="Average load (W); overrides the tier")
+    energy_kwh: float | None = Field(None, gt=0, le=10_000_000, description="Energy needed over the whole mission; overrides load_w")
+    panel_area_m2: float | None = Field(None, gt=0, le=100_000)
+    efficiency: float | None = Field(None, gt=0, le=1)
+    tracking: bool = True
+    battery_hours: float | None = Field(None, ge=0, le=10_000)
+
+
+class HeatNeeds(BaseModel):
+    profile: Literal["crewed", "robotic", "cold_science"] = "robotic"
+    min_k: float | None = Field(None, ge=0, le=500)
+    max_k: float | None = Field(None, ge=0, le=500)
+
+
+class CommNeeds(BaseModel):
+    frequency: Literal["high", "mid", "low"] = "mid"
+    min_visible_fraction: float | None = Field(None, ge=0, le=1)
+    max_blackout_hours: float | None = Field(None, ge=0, le=10_000)
+
+
+class SearchRequest(BaseModel):
+    where: Where
+    start: datetime = Field(description="Start of the search period (UTC)")
+    end: datetime = Field(description="End of the search period (UTC)")
+    mission_days: float = Field(14, gt=0, le=search_engine.MAX_MISSION_DAYS)
+    power: PowerNeeds = PowerNeeds()
+    heat: HeatNeeds = HeatNeeds()
+    comm: CommNeeds = CommNeeds()
+    max_slope_deg: float = Field(15, ge=0, le=90, description="Steepest ground a base site may have")
+
+
+_jobs: dict[str, dict] = {}
+MAX_JOBS = 20
+
+
+def _prepare(req: SearchRequest):
+    """Validate and return (lat, lon, grid, needs, start, end); raises HTTPException."""
+    start, end = _utc(req.start, "start"), _utc(req.end, "end")
+    if end <= start:
+        raise HTTPException(422, "The search period must end after it starts.")
+    days = (end - start).total_seconds() / 86400
+    if days > search_engine.MAX_SEARCH_DAYS:
+        raise HTTPException(422, f"The search period can be at most {search_engine.MAX_SEARCH_DAYS} days.")
+    if req.mission_days > days + 1e-9:
+        raise HTTPException(422, "The mission must fit inside the search period.")
+    first = start - timedelta(days=search_engine.SYNODIC_DAYS)
+    if first.year < 2020 or end.year > 2035:
+        raise HTTPException(422, "The ephemeris covers 2020-2035 (the search also needs the month before the start).")
+    try:
+        needs = search_engine.resolve_needs(req.power.model_dump(), req.heat.model_dump(), req.comm.model_dump(),
+                                            req.max_slope_deg, req.mission_days)
+    except EnergyError as exc:
+        _fail(exc)
+    times, _, _ = search_engine.plan_times(start, end)
+    grid = None
+    if req.where.type == "point":
+        lat, lon = np.array([req.where.lat]), np.array([(req.where.lon + 180) % 360 - 180])
+    else:
+        try:
+            lat, lon, grid = search_engine.polygon_cells(req.where.coordinates, search_engine.cell_budget(len(times)), start)
+        except EnergyError as exc:
+            _fail(exc)
+    return lat, lon, grid, needs, start, end
+
+
+async def _run(job_id: str, req: SearchRequest, lat, lon, grid, needs, start, end):
+    job = _jobs[job_id]
+
+    def progress(done, total):
+        job["progress"] = round(0.85 * done / total, 3)        # the heat model and scoring take the rest
+    try:
+        result = await run_in_threadpool(search_engine.search, lat, lon, start, end, req.mission_days, needs, progress)
+    except EnergyError as exc:
+        job.update(status="error", error=exc.message)
+        return
+    except Exception as exc:  # noqa: BLE001 - reported to the client
+        job.update(status="error", error=f"Search failed: {exc}")
+        return
+    result |= {
+        "kind": req.where.type, "where": req.where.model_dump(exclude_none=True), "grid": grid,
+        "period": {"start": start.isoformat(), "end": end.isoformat(), "mission_days": req.mission_days},
+        "needs": {k: v for k, v in needs.__dict__.items()},
+        "limitations": search_engine.LIMITATIONS,
+        "sources": {"all": "Lunar Energy v1 offline data: SPICE DE440 ephemeris and LOLA terrain; heat from the "
+                           "1-D regolith model (Hayne et al. 2017) driven by the same sunlight series."},
+    }
+    job.update(status="done", progress=1, result=result)
+
+
+@router.get("/search/options", summary="Basic choices for the three criteria and their defaults")
+def search_options():
+    return {"power": search_engine.POWER_TIERS, "heat": search_engine.HEAT_PROFILES, "comm": search_engine.COMM_LEVELS,
+            "efficiency": search_engine.DEFAULT_EFFICIENCY, "max_search_days": search_engine.MAX_SEARCH_DAYS,
+            "max_mission_days": search_engine.MAX_MISSION_DAYS}
+
+
+@router.post("/search", status_code=202, summary="Start a search for the best mission windows and spots")
+async def start_search(req: SearchRequest):
+    lat, lon, grid, needs, start, end = _prepare(req)
+    for old in list(_jobs)[:-MAX_JOBS + 1] if len(_jobs) >= MAX_JOBS else []:
+        _jobs.pop(old, None)
+    job_id = uuid.uuid4().hex
+    _jobs[job_id] = {"status": "running", "progress": 0, "cells": int(len(lat))}
+    _jobs[job_id]["task"] = asyncio.create_task(_run(job_id, req, lat, lon, grid, needs, start, end))
+    return {"id": job_id, "cells": int(len(lat))}
+
+
+@router.get("/search/{job_id}", summary="Progress, then the result, of a window search")
+def search_status(job_id: str):
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Unknown or expired search.")
+    return {k: v for k, v in job.items() if k != "task"}

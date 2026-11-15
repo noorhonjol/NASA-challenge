@@ -140,21 +140,46 @@ period, use `/api/earth-link` below.
 Pick a site and press **Check this site**, or press **Open mission planner** in the left panel.
 The planner opens as a drawer on the right, beside the globe; the Moon stays usable.
 
-**Plan tab** (the default, three steps):
-1. **Where:** the selected location; a known region or site (the 9 NASA Artemis III
-   candidate regions as polygons, plus the PGDA 78 sites and your pins as points); or a
-   region you draw. Press **Draw region on the Moon**, click the corners on the globe,
-   then **Finish region**. Dragging still orbits the camera.
-2. **When:** the shared mission time range (2020-2035, at most 366 days).
-3. **Mission type:** crewed landing, lander survival, solar rover, ice cold trap, or no check.
+**Plan tab: find the best mission windows.** Give a long search period and a mission length;
+the planner tries every window of that length inside the period and ranks them, with the best
+places for the base, the solar panels and the antenna in each.
+1. **Where:** the selected site; a known region or site (the 9 NASA Artemis III candidate
+   regions as polygons, plus the PGDA 78 sites and your pins as points); or a region you draw
+   (**Draw region on the Moon**, click the corners, **Finish region**).
+2. **When:** the search period (**Search from / until**, presets 30/60/90/180 days, at most
+   180 days, 2020-2035) and the **mission length** (presets 3/7/14/28 days, at most 60).
+3. **Power:** low (small robotic payload, 100 W), mid (rover or robotic lander, 1 kW) or high
+   (crewed lander or habitat, 10 kW); **Panels turn to follow the Sun** on or off. Advanced:
+   energy needed over the whole mission (kWh), panel area, panel efficiency, battery (hours of load).
+4. **Heat:** crewed (100-330 K surface), robotic (70-380 K) or cold-trap science (at most 110 K).
+   Advanced: lowest and highest surface temperature.
+5. **Communication:** very frequent (Earth in view 90%, blackout at most 12 h), frequent (50%,
+   48 h) or occasional (20%, 168 h). Advanced: both numbers. Also: steepest ground for the base.
 
-**Analyze** sends one request, `POST /api/mission/analyze`, and shows four cards: power
-(sunlit %, longest darkness, solar energy), heat (lowest to highest surface temperature),
-communication (Earth visible %) and ground (slope, elevation). Below them is the check
-for each criterion. For a site there are also sunlight and temperature charts, and
-refined Earth contact windows. For a region there is a map of the cells with a layer
-picker, the five best spots, and **Fly here** (the planner and its results stay open).
-The region outline and the best spots are also drawn on the globe.
+**Find the best windows** starts a search (`POST /api/mission/search`, then polled at
+`GET /api/mission/search/{id}` with a progress bar). Results:
+- A chart of the window score through the whole period, and the ranked best windows (no two
+  overlapping by more than half), each with its power, heat and communication parts.
+- For a region: a smooth, coloured **score surface draped on the Moon** over the area (layers:
+  overall base site, power, heat, communication), the best **base site**, the best **solar panel**
+  spots and the best **antenna** spots, each with **Fly here**. For one point: the best windows.
+- **How a spot does in the window:** energy from the panels against the need, longest darkness
+  against the battery, time in the allowed temperature range, Earth in view and longest blackout,
+  slope.
+- **Compare other spots:** **Pick a spot on the Moon**, click anywhere: an instant estimate from the
+  nearby samples, then **Compute exactly** for that point (same search, a few seconds).
+- Scores are 0-100. A window's score averages the base site's heat with the best power spot and
+  the best antenna spot in the area (equipment can stand apart from the base); a base steeper
+  than the limit scores 0. All thresholds are illustrative screening values.
+
+How the search works (`backend/app/mission_search.py`, no network): one series per sampled cell
+over the period plus one lunar month before it, from the offline Lunar Energy v1 data (SPICE
+DE440, LOLA terrain): Sun visibility and direction, panel irradiance, Earth visibility. Surface
+temperature comes from the same sunlight through the 1-D regolith model. Every window is then
+scored with sliding sums. Time step 1/2/3 h for periods up to 45/120/180 days; windows start
+every 12 h (periods up to 60 days) or 24 h. Cells: the finest grid with at most 120 cells and
+160,000 cell-steps. Measured: 100 cells over 60 days in about 10 s; one point in about 2 s.
+The older one-period analysis (`POST /api/mission/analyze`) is still available in the API.
 
 **Detailed analysis tab** (one topic at a time: **Power**, **Heat & sunlight**, **Earth contact**): Noor's Lunar Energy v1 forms (point, region, mission sizing with
 loads and batteries, power windows), and the detailed Earth contact and Sunlight &
@@ -496,6 +521,7 @@ surface** in the toolbar does the same at the screen centre.
   without pausing) rises to orbit view at 1,500 m; the overlay shows the progress. A pause
   of 0.8 s starts the count again.
 - **Leave:** Esc, the overlay's **Leave surface view**, or any camera preset.
+- **Re-centre:** the round **Re-centre** button at the bottom right of the globe (or R) points the camera at the Moon's centre again.
 - Movement uses vectors rather than latitude/longitude, so walking across the south pole
   keeps going straight. The code is in `globe/surfaceView.ts` (math) and
   `globe/orbitCamera.ts` (controls).

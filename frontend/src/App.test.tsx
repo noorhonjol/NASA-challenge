@@ -34,7 +34,7 @@ test("typed coordinates fly to the spot without querying Horizons, and bad input
   fireEvent.click(screen.getByRole("button", {name: "Fly to coordinates"}));
   expect(screen.getByTestId("globe")).toHaveTextContent("moon:-88.5,-74");
   expect(screen.getByRole("article", {name: "Selected site"})).toHaveTextContent("Entered coordinates");
-  expect(fetch.mock.calls.every(([url]) => ["/api/sites", "/api/terrain/browser-manifest", "/api/mission/regions"].includes(url))).toBe(true);
+  expect(fetch.mock.calls.every(([url]) => ["/api/sites", "/api/terrain/browser-manifest", "/api/mission/regions", "/api/mission/search/options"].includes(url))).toBe(true);
   fireEvent.change(screen.getByLabelText(/^Latitude/), {target: {value: "95"}});
   fireEvent.click(screen.getByRole("button", {name: "Fly to coordinates"}));
   expect(screen.getByRole("alert")).toHaveTextContent(/latitude between −90 and 90/);
@@ -103,7 +103,7 @@ test("Check this site carries the pin and the mission start into the detailed an
   fireEvent.click(screen.getByRole('button',{name:'Check this site'}));
   let drawer=screen.getByRole('complementary',{name:'Mission planner'});
   expect(within(drawer).getByRole('radio',{name:/Selected site/})).toBeChecked();
-  fireEvent.change(within(drawer).getByLabelText('Mission start (UTC)'),{target:{value:'2026-12-03 05:30'}});
+  fireEvent.change(within(drawer).getByLabelText('Search from (UTC)'),{target:{value:'2026-12-03 05:30'}});
   fireEvent.click(within(drawer).getByRole('tab',{name:'Detailed analysis'}));
   expect(within(drawer).getByLabelText('Lunar latitude (° north)')).toHaveValue('-89.7');
   expect(within(drawer).getByLabelText('Lunar longitude (° east)')).toHaveValue('-12.3');
@@ -135,8 +135,8 @@ test("one mission time range drives Show Sun & Earth, and the detailed checks li
   vi.stubGlobal("fetch", fetch);
   render(<App />);
   expect(screen.queryByLabelText(/^Date & time/)).not.toBeInTheDocument();
-  expect(screen.getAllByLabelText("Mission start (UTC)")).toHaveLength(1);
-  fireEvent.change(screen.getByLabelText("Mission start (UTC)"), { target: { value: "2027-03-10 06:30" } });
+  expect(screen.getAllByLabelText("Search from (UTC)")).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText("Search from (UTC)"), { target: { value: "2027-03-10 06:30" } });
   await screen.findByRole("option", {name: /Site04/});
   fireEvent.change(screen.getByRole("combobox", {name: "Site"}), {target: {value: "4"}});
   fireEvent.click(screen.getByRole("button", { name: "Show Sun & Earth" }));
