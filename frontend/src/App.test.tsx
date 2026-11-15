@@ -58,3 +58,21 @@ test("product 81 becomes the active dataset without requesting a camera flight",
   expect(screen.queryByRole("combobox",{name:/LOLA terrain dataset/})).not.toBeInTheDocument();
   expect(screen.getByTestId("globe")).toHaveTextContent("moon:-89.5,0");
 });
+
+test("one mission time range drives Show Sun & Earth and both mission checks", async () => {
+  const fetch = vi.fn(async (url: string) => ({ ok: true, json: async () => url.startsWith("/api/positions") ? {
+    at_utc: "2027-03-10T06:30:00Z", latitude_deg: -85, longitude_deg: 0, elevation_m: 0, source: "JPL Horizons",
+    source_url: "", horizon_model: "", sun: { azimuth_deg: 1, elevation_deg: 1, above_horizon: true },
+    earth: { azimuth_deg: 2, elevation_deg: 2, above_horizon: true } } : [] }));
+  vi.stubGlobal("fetch", fetch);
+  render(<App />);
+  expect(screen.queryByLabelText(/^Date & time/)).not.toBeInTheDocument();
+  expect(screen.getAllByLabelText("Mission start (UTC)")).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText("Mission start (UTC)"), { target: { value: "2027-03-10T06:30" } });
+  fireEvent.click(screen.getByRole("button", { name: "Show Sun & Earth at mission start" }));
+  await vi.waitFor(() => expect(fetch.mock.calls.some(([url]) => url.startsWith("/api/positions"))).toBe(true));
+  const positions = new URL(fetch.mock.calls.find(([url]) => url.startsWith("/api/positions"))![0], "http://x");
+  expect(positions.searchParams.get("at")).toBe("2027-03-10T06:30:00Z");
+  expect(screen.getByRole("button", { name: "Check Earth contact" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Check sunlight & temperature" })).toBeInTheDocument();
+});

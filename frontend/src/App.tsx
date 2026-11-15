@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { GlobeOptions } from "./globe/createLunarViewer";
 import { fetchPositions, fetchSites, fetchTerrainManifest, type Positions, type Site, type TerrainManifest } from "./api/client";
 import { LunarGlobe } from "./components/LunarGlobe";
+import { EarthLinkPanel } from "./components/EarthLinkPanel";
+import { MissionRange } from "./components/MissionRange";
+import { SunPanel } from "./components/SunPanel";
+import { addDays } from "./mission";
 
 function App() {
   const [body, setBody] = useState<"moon" | "earth">("moon");
@@ -19,7 +23,7 @@ function App() {
   const [lat, setLat] = useState("-89.45");
   const [lon, setLon] = useState("129.2");
   const [height, setHeight] = useState("0");
-  const [at, setAt] = useState(() => new Date().toISOString().slice(0, 16));
+  const [mission, setMission] = useState(() => { const start = new Date().toISOString().slice(0, 16); return { start, end: addDays(start, 7) }; });
   const [request, setRequest] = useState<{lat: number; lon: number; height: number; at: string} | null>(null);
   const [data, setData] = useState<Positions | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +72,12 @@ function App() {
       setFlightMode("terrain");setFlyToTarget(value=>value+1);setTerrainEnabled(true);
     }
   };
+  const pickSpot = (latitude: number, longitude: number, elevation: number) => {
+    setSelected(""); setData(null); setRequest(null); setLoading(false); setError(null);
+    setLat(String(latitude)); setLon(String(longitude)); setHeight(String(elevation));
+    setTarget({ latitude, longitude, elevation });
+    setFlightMode("terrain"); setFlyToTarget(value => value + 1); setTerrainEnabled(true);
+  };
   const dirty = () => { setData(null); setRequest(null); setLoading(false); setError(null); };
   const globeOptions = useMemo(() => ({ body, target, flyToTarget, flightMode, terrainEnabled, terrainRegion }), [body, target, flyToTarget, flightMode, terrainEnabled, terrainRegion]);
 
@@ -104,12 +114,15 @@ function App() {
       <label>Altitude above {body === "moon" ? "lunar" : "Earth"} ellipsoid (m)<input required type="number" min="-20000" max="20000" step="any" value={height} onChange={e => { dirty(); setHeight(e.target.value); }} /></label>
       <button type="submit">Fly to coordinates</button>
       {body === "moon" && <>
-      <label>Date & time (UTC)<input required type="datetime-local" min="1550-01-01T00:00" max="2649-12-31T23:59" value={at} onChange={e => { dirty(); setAt(e.target.value); }} /></label>
-      <button type="button" disabled={loading} onClick={event => {
+      <fieldset className="mission-range">
+        <legend>Mission time range</legend>
+        <MissionRange start={mission.start} end={mission.end} onChange={(start, end) => { dirty(); setMission({ start, end }); }} />
+      </fieldset>
+      <button type="button" disabled={loading || !mission.start} onClick={event => {
         if (!event.currentTarget.form?.reportValidity()) return;
         setTarget({ latitude: Number(lat), longitude: Number(lon), elevation: Number(height) });
-      setRequest({ lat: Number(lat), lon: Number(lon), height: Number(height), at: `${at}:00Z` });
-      }}>{loading ? "Querying JPL Horizons…" : "Show Sun & Earth"}</button>
+      setRequest({ lat: Number(lat), lon: Number(lon), height: Number(height), at: `${mission.start}:00Z` });
+      }}>{loading ? "Querying JPL Horizons…" : "Show Sun & Earth at mission start"}</button>
       </>}
     </form>
     {selected && <p className="banner">{sites.find(s => String(s.id) === selected)?.notes}</p>}
@@ -117,6 +130,12 @@ function App() {
     {loading && <p role="status">Fetching Sun and Earth positions from JPL Horizons…</p>}
     {error && <p role="alert" className="error">{error}</p>}
     {!data && !loading && <p>Enter coordinates and fly to the location. On the Moon, load Sun & Earth to look toward them from the site.</p>}
+    {body === "moon" && <section className="mission-panel" aria-labelledby="mission-heading">
+      <h2 id="mission-heading">Mission checks</h2>
+      <p>Both checks use the mission time range and the location above.</p>
+      <EarthLinkPanel key={`earth|${lat}|${lon}|${mission.start}|${mission.end}`} lat={Number(lat)} lon={Number(lon)} start={mission.start} end={mission.end} />
+      <SunPanel key={`sun|${lat}|${lon}|${mission.start}|${mission.end}`} lat={Number(lat)} lon={Number(lon)} start={mission.start} end={mission.end} onPick={pickSpot} />
+    </section>}
     </LunarGlobe>
   </main>;
 }

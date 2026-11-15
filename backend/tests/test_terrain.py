@@ -50,6 +50,18 @@ def test_samples_original_pixel_centers_and_global_height_datum(local_terrain):
     assert heights[1] == pytest.approx(100)  # DN * .5, not lunar radius + height
 
 
+def test_circular_coverage_blends_to_baseline_at_the_circle(local_terrain):
+    m, root = local_terrain
+    m["regions"][0]["coverage_radius_m"] = 500
+    def lat_at(rho):  # on the 0 deg meridian: x = 0, y = rho
+        return np.degrees(2 * np.arctan(rho / (2 * 1737400)) - np.pi / 2)
+    heights = terrain.sample_heights(m, root, lat_at(np.array([400.0, 500.0, 800.0])), np.zeros(3))
+    w = 0.4 * 0.4 * (3 - 2 * 0.4)   # smoothstep(100 m / 250 m)
+    local = 500 + 3 * 200 + 4 * 120   # fixture value at x = 0, y = 400
+    assert heights[0] == pytest.approx(100 * (1 - w) + local * w, rel=1e-6)
+    assert heights[1] == pytest.approx(100) and heights[2] == pytest.approx(100)
+
+
 def test_bilinear_nodata_and_seam_wrapping():
     grid = np.array([[1, np.nan], [3, 5]])
     assert terrain.bilinear(grid, np.array([.5]), np.array([.5]))[0] == pytest.approx(3)

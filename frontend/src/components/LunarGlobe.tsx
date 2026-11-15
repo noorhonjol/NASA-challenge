@@ -127,7 +127,7 @@ export function LunarGlobe({
           <button type="button" disabled={!ready} onClick={() => globeRef.current?.view?.("sun")}>Look toward Sun</button>
         </>}
       </div>
-      <p className="attribution">Left-drag: orbit at fixed radius, facing center. Scroll: radial zoom. Right-drag: look around without moving. Shift + right-drag: roll. Center view or R over the globe: face the center again.</p>
+      <p className="attribution">Left-drag: orbit at fixed radius, keeping the current tilt and roll. Scroll: radial zoom. Right-drag: look around without moving. Shift + right-drag: roll. Center view or R over the globe: face the center again.</p>
       {warning && <p role="status">{warning}</p>}
       {terrainLoading && <p role="status">Loading prepared local region into memory…</p>}
       {positions && <>
