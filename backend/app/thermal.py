@@ -2,7 +2,7 @@
 
 Vectorised over P points. Absorbed flux = (1-A(i)) * irradiance on the local
 surface. Ignores scattered light / IR from surrounding terrain, so permanently
-shadowed floors come out colder than reality (~25-40 K vs ~40-60 K).
+shadowed floors come out about 10-30 K colder than reality (e.g. ~25-40 K vs ~40-60 K).
 Merged unchanged from the lunar_sun prototype.
 """
 from __future__ import annotations

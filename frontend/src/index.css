@@ -492,3 +492,41 @@ main:has(.planner-drawer:not([hidden]) #detail-panel-power:not([hidden])) .recen
 .criteria-table th, .criteria-table td { padding: 3px 4px; text-align: left; border-bottom: 1px solid #1f2b3a; color: #c9d6e6; }
 .criteria-table th { color: #8e9db2; font-weight: 500; }
 .criteria-table .crit-head td { padding-top: 8px; color: #caeaff; font-weight: 650; border-bottom: 1px solid #344255; }
+/* Result first: verdict card */
+.verdict-card { display: grid; gap: 6px; padding: 12px 14px; border-radius: 10px; border: 1px solid #344255; background: #142031; }
+.verdict-card.is-ok { border-color: #5fd39a; background: #13261e; }
+.verdict-card.is-bad { border-color: #ff9b8f; background: #2a1719; }
+.verdict-head { margin: 0; font-size: 13px; font-weight: 650; color: #e8edf5; }
+.verdict-card .mission-verdict { margin: 0; }
+.verdict-fails { margin: 0; padding-left: 18px; font-size: 12px; color: #ffbfb9; }
+.verdict-plain { margin: 0; font-size: 12px; color: #d6e2f0; }
+.verdict-card .button-row button { padding: 6px 10px; border: 1px solid #456c87; border-radius: 7px; background: #1b3347; color: #d6edff; font-size: 12px; }
+.window-badge { grid-column: 2 / -1; font-size: 11px; }
+.spot-distance { color: #8e9db2; font-size: 10px; min-width: 40px; text-align: right; }
+.spot-list li { grid-template-columns: 1fr auto auto auto; }
+.compare-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; max-height: 220px; overflow-y: auto; margin: 8px 0; }
+.compare-picks .check-row { font-size: 11px !important; }
+.compare-sites .button-row button { padding: 6px 10px; border: 1px solid #456c87; border-radius: 7px; background: #1b3347; color: #d6edff; font-size: 12px; }
+/* Horizon chart: Sun and Earth against the real terrain skyline */
+.horizon-chart { margin: 0; }
+.horizon-chart figcaption { display: flex; justify-content: space-between; font-size: 12px; color: #caeaff; margin-bottom: 4px; }
+.horizon-chart figcaption span { color: #8e9db2; font-size: 11px; }
+.horizon-chart svg { display: block; width: 100%; height: auto; background: #05080d; border-radius: 6px; }
+.horizon-chart .ground { fill: #4a4f57; stroke: #c9ced6; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.horizon-chart line.grid { stroke: #1f2b3a; stroke-width: 1; }
+.horizon-chart line.zero { stroke: #5b6b80; stroke-dasharray: 3 3; }
+.horizon-chart text { fill: #8e9db2; font-size: 9px; }
+.horizon-chart circle.sun { fill: #ffd166; }
+.horizon-chart circle.earth { fill: #69ceff; }
+.horizon-chart circle.hidden { opacity: .22; }
+.horizon-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 10px; color: #a9bad0; }
+.horizon-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+.horizon-legend i.sun { background: #ffd166; } .horizon-legend i.earth { background: #69ceff; }
+.horizon-legend i.hidden-dot { background: #ffd166; opacity: .25; }
+
+.panel-challenge { margin: 0 0 4px; font-size: 10px; letter-spacing: .4px; color: #8ecbe7; text-transform: uppercase; }
+.demo-button { width: 100%; margin-top: 8px; padding: 9px 12px !important; border: 1px solid #fde725 !important; background: #2b2a12 !important;
+  color: #fde725 !important; font-size: 12px !important; font-weight: 600; text-align: left; }
+/* The camera buttons stay on one row beside an open drawer. */
+main:has(.planner-drawer:not([hidden])) .camera-toolbar { flex-wrap: nowrap; }
+main:has(.planner-drawer:not([hidden])) .camera-toolbar button { padding: 6px 8px; font-size: 11px; white-space: nowrap; }

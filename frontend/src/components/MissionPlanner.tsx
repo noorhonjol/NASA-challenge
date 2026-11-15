@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Site } from "../api/client";
 import { fetchKnownRegions, type KnownRegion, type LatLon, type Where } from "../api/mission";
 import { MissionSearch } from "./MissionSearch";
@@ -9,11 +9,13 @@ export type GlobeOverlay = {
   polygon: LatLon[] | null;
   spots: { lat: number; lon: number; label: string; pass: boolean; color?: string }[];
   surface?: { cells: LatLon[]; cellRows: number[]; cellCols: number[]; values: (number | null)[] } | null;
+  /** Ground lines, e.g. from the base to its panels and antenna. */
+  links?: { from: LatLon; to: LatLon; label: string; color: string }[];
 };
 
 type Choice = "location" | "known" | "drawn";
 
-export function MissionPlanner({ location, sites, mission, onMissionChange, drawn, onDraw, onFly, onOverlay, onClose, advanced, probing, onProbe, probe }: {
+export function MissionPlanner({ location, sites, mission, onMissionChange, drawn, onDraw, onFly, onOverlay, onClose, probing, onProbe, probe, demo = null }: {
   /** The site picked on the globe or in the panel; null when nothing is selected. */
   location: PlannerSource | null;
   sites: Site[];
@@ -24,14 +26,14 @@ export function MissionPlanner({ location, sites, mission, onMissionChange, draw
   onFly: (lat: number, lon: number, elevation: number) => void;
   onOverlay: (overlay: GlobeOverlay) => void;
   onClose: () => void;
-  advanced: ReactNode;
   probing: boolean;
   onProbe: (on: boolean) => void;
   probe: { lat: number; lon: number; elevation: number } | null;
+  /** A known region to open on and search straight away (the one-click demo). */
+  demo?: string | null;
 }) {
-  const [tab, setTab] = useState<"plan" | "advanced">("plan");
-  const [choice, setChoice] = useState<Choice>(drawn ? "drawn" : location ? "location" : "known");
-  const [known, setKnown] = useState("");
+  const [choice, setChoice] = useState<Choice>(demo ? "known" : drawn ? "drawn" : location ? "location" : "known");
+  const [known, setKnown] = useState(demo ?? "");
   const [regions, setRegions] = useState<KnownRegion[]>([]);
   const [regionsNote, setRegionsNote] = useState("");
   useEffect(() => {
@@ -59,11 +61,7 @@ export function MissionPlanner({ location, sites, mission, onMissionChange, draw
         <p>The best times and places for a mission: power, heat and Earth contact.</p></div>
       <button type="button" onClick={onClose}>Close planner</button>
     </div>
-    <div className="mission-tabs" role="tablist" aria-label="Planner mode">
-      <button type="button" role="tab" aria-selected={tab === "plan"} onClick={() => setTab("plan")}>Plan</button>
-      <button type="button" role="tab" aria-selected={tab === "advanced"} onClick={() => setTab("advanced")}>Detailed analysis</button>
-    </div>
-    {tab === "plan" ? <div className="mission-plan" role="tabpanel" aria-label="Plan">
+    <div className="mission-plan">
       <fieldset className="mission-step">
         <legend>1 · Where</legend>
         <label className="mission-choice"><input type="radio" name="where" disabled={!location} checked={active === "location"} onChange={() => setChoice("location")} />
@@ -85,7 +83,12 @@ export function MissionPlanner({ location, sites, mission, onMissionChange, draw
         {active === "drawn" && <button type="button" className="sun-secondary" onClick={onDraw}>{drawn?.length ? "Redraw region on the Moon" : "Draw region on the Moon"}</button>}
       </fieldset>
       <MissionSearch where={where} mission={mission} onMissionChange={onMissionChange} onFly={onFly} onOverlay={onOverlay}
-        probing={probing} onProbe={onProbe} probe={probe} />
-    </div> : <div className="mission-advanced" role="tabpanel" aria-label="Detailed analysis">{advanced}</div>}
+        autoRun={Boolean(demo) && known === demo}
+        probing={probing} onProbe={onProbe} probe={probe}
+        candidates={[
+          ...regions.map(r => ({ id: `region:${r.id}`, name: `${r.name} (Artemis III region centre)`, lat: r.center.lat, lon: r.center.lon })),
+          ...sites.map(st => ({ id: `site:${st.id}`, name: st.name, lat: st.lat_deg, lon: st.lon_deg })),
+        ]} />
+    </div>
   </section>;
 }

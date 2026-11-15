@@ -1,5 +1,5 @@
 import * as Cesium from "cesium";
-import { centerFrame, lookFrame, magnitude, orbitFrame, rollFrame, type CameraFrame } from "./orbitCameraMath";
+import { centerFrame, grabScale, lookFrame, magnitude, orbitFrame, rollFrame, type CameraFrame } from "./orbitCameraMath";
 import {
   ARRIVAL_PITCH, ENTER_ALTITUDE_M, EXIT_ALTITUDE_M, EYE_HEIGHT_M, RUN_SPEED_M_S, WALK_SPEED_M_S,
   cameraFrame, easeInOut, facing, fromCamera, headingDeg, horizontal, look, normalize, travel, walk,
@@ -270,10 +270,12 @@ export function setupOrbitCamera(viewer: Cesium.Viewer, ellipsoid: Cesium.Ellips
       apply(event.shiftKey ? rollFrame(frame, dx * angularScale) : lookFrame(frame, dx * angularScale, dy * angularScale));
     } else {
       const radius = magnitude(frame.position);
-      // Scale orbit sensitivity by altitude, keeping close-up motion controllable.
-      const scale = angularScale * Math.max(0.00002, Math.min(1, (radius - bodyRadius) / radius));
-      // Up/down is inverted: dragging up tilts the Moon toward you (user preference).
-      const next = orbitFrame(frame, dx * scale, -dy * scale);
+      // Grab and spin the Moon: the ground under the pointer follows it, in both directions.
+      // One pixel spans 2·tan(fovy/2)/height of the view at the ground below, which is a
+      // rotation of that distance / bodyRadius about the Moon's centre.
+      const above = Math.max(minAltitude, radius - bodyRadius - groundUnder(frame.position));
+      const scale = grabScale(frustum().fovy ?? defaultFov, height, above, bodyRadius);
+      const next = orbitFrame(frame, -dx * scale, -dy * scale);
       // Preserve the shell radius: stop at a loaded mountain instead of
       // raising or translating the camera while the user is orbiting.
       if (magnitude(next.position) >= bodyRadius + minimumAltitudeAt(next.position)) apply(next);

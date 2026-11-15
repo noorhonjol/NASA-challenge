@@ -72,6 +72,8 @@ export type SearchNeeds = {
   heat: { profile: HeatProfile; min_k?: number; max_k?: number };
   comm: { frequency: CommLevel; min_visible_fraction?: number; max_blackout_hours?: number };
   max_slope_deg: number;
+  max_cable_km?: number;
+  equipment_height_m?: number;
 };
 export type SearchOptions = {
   power: Record<PowerTier, { label: string; load_w: number; panel_area_m2: number; battery_hours: number }>;
@@ -85,11 +87,16 @@ export type CellDetail = {
   energy_kwh: number; coverage: number; sunlit_fraction: number; longest_darkness_h: number; fixed_panel_azimuth_deg: number | null;
   in_range_fraction: number; min_temp_K: number; max_temp_K: number;
   earth_visible_fraction: number; longest_blackout_h: number; slope_ok: boolean;
+  meets?: { power: boolean; heat: boolean; comm: boolean };
 };
-export type SpotDetail = CellDetail & { cell: number; lat: number; lon: number; slope_deg: number; elevation_m: number };
+export type SpotDetail = CellDetail & { cell: number; lat: number; lon: number; slope_deg: number; elevation_m: number; distance_km?: number };
 export type ScoreMaps = Record<"site" | "power" | "heat" | "comm", (number | null)[]>;
 export type SearchWindow = {
   index: number; start: string; end: string; score: number;
+  /** Every need met in full by the base and its reachable panel and antenna spots. */
+  feasible: boolean;
+  fails: { criterion: "power" | "heat" | "comm" | "slope"; text: string }[];
+  met: { power: boolean; heat: boolean; comm: boolean; slope: boolean };
   parts: { power: number; heat: number; comm: number };
   base: SpotDetail; solar_spots: SpotDetail[]; comm_spots: SpotDetail[];
   maps: ScoreMaps; cells: CellDetail[];
@@ -100,9 +107,11 @@ export type SearchResult = {
   grid: { rows: number; cols: number; resolution_m: number; cell_rows: number[]; cell_cols: number[] } | null;
   timeline: { starts: string[]; score: (number | null)[]; power: (number | null)[]; heat: (number | null)[]; comm: (number | null)[] };
   windows: SearchWindow[];
+  feasible_count: number;
   need_kwh: number;
   needs: { load_w: number; panel_area_m2: number; efficiency: number; tracking: boolean; battery_hours: number; min_k: number; max_k: number;
-    min_visible_fraction: number; max_blackout_hours: number; max_slope_deg: number; labels: Record<string, string> };
+    min_visible_fraction: number; max_blackout_hours: number; max_slope_deg: number;
+    max_cable_km: number | null; equipment_height_m: number; labels: Record<string, string> };
   period: { start: string; end: string; mission_days: number };
   step_hours: number; window_stride_hours: number; window_count: number;
   limitations: string[]; sources: Record<string, string>;
@@ -140,4 +149,18 @@ export async function searchMission(where: Where, start: Date, end: Date, missio
     if (status.status === "done" && status.result) return status.result;
     onProgress?.(status.progress, status.cells);
   }
+}
+
+/** Terrain skyline and Sun/Earth tracks from one spot (same engine and height as the search). */
+export type SkyView = {
+  lat: number; lon: number; height_m: number; step_hours: number; skyline_deg: number[]; times: string[];
+  sun: { azimuth_deg: number[]; elevation_deg: number[]; visible_fraction: number[] };
+  earth: { azimuth_deg: number[]; elevation_deg: number[]; visible: boolean[] };
+  source: string;
+};
+export async function fetchSkyView(lat: number, lon: number, start: string, end: string, heightM: number, signal?: AbortSignal): Promise<SkyView> {
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lon), start, end, height_m: String(heightM) });
+  const res = await fetch(`/api/mission/sky?${params}`, { signal });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return res.json();
 }

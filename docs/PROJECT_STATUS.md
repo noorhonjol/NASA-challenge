@@ -43,8 +43,7 @@ globe option was removed in 3.12). The screen has three parts (section 3.12):
      UTC) → Mission type → one `/api/mission/analyze` request → power, heat, communication and
      ground cards, criterion checks, region map, best spots, **Fly here** (the drawer and the
      results stay).
-   - **Detailed analysis tab:** Noor's `/v1` forms, plus the detailed Earth contact and Sunlight &
-     temperature panels, for the selected site.
+   - The **Detailed analysis** tab was removed from the UI (section 3.16); its components and APIs remain.
 
 ### Backend endpoints
 
@@ -58,7 +57,7 @@ globe option was removed in 3.12). The screen has three parts (section 3.12):
 | `POST /api/sun/judge` | same | Score and rank points or an area against criteria or presets |
 | `GET /api/sun/metrics` | same | Metric names and presets |
 | `POST /api/mission/analyze`, `GET /api/mission/regions` | `routers/mission.py`, `mission.py`, `data/artemis_iii_regions.json` | Planner hub: power + Earth (v1 SPICE) and heat (regolith model) per cell for a point or polygon, scored by mission type; known Artemis III regions |
-| `POST /v1/solar/point`, `/v1/solar/region`, `/v1/power/mission`, `/v1/power/windows` | `routers/energy_v1.py`, `energy_v1/` (Noor, PR #1) | Lunar Energy API v1: SPICE DE440 ephemeris, solar point and region analysis, panel and battery sizing, power windows. UI: **Mission planner** drawer → **Detailed analysis**. Contract: `docs/requirements/lunar-energy-api-v1*.md` |
+| `POST /v1/solar/point`, `/v1/solar/region`, `/v1/power/mission`, `/v1/power/windows` | `routers/energy_v1.py`, `energy_v1/` (Noor, PR #1) | Lunar Energy API v1: SPICE DE440 ephemeris, solar point and region analysis, panel and battery sizing, power windows. UI: none since 3.16 (component `EnergyPlanner.tsx` kept, unmounted). Contract: `docs/requirements/lunar-energy-api-v1*.md` |
 
 ---
 
@@ -205,7 +204,7 @@ Fix (user chose the full fix, "option C"):
 The user asked for Street View-style controls when zoomed in close, with VR as a stretch goal.
 - **Behaviour:** zoom is now measured from the ground (the old floor was 40 m above the
   reference sphere, which in craters stopped hundreds of metres up). Below 800 m it switches to
-  surface view: the camera descends to 2 m and tilts to −8°. Drag to look (grab semantics,
+  surface view: the camera descends to 4 m (2 m until 2026-11-15) and tilts to −8°. Drag to look (grab semantics,
   pitch ±85°). WASD/arrows walk at 30 m/s, Shift runs at 240 m/s, following the terrain. A
   click travels there with a hop arc and keeps the view direction (parallel transport). Scroll
   narrows the lens (down to 15°); scrolling out past the normal lens rises to orbit view at
@@ -342,6 +341,39 @@ mission windows of a given length and, for each, the best base, solar panel and 
   in 10 s; ranked windows; score surface drapes on the terrain and recolours by layer; Fly here;
   a clicked spot got an estimate, then an exact result; Re-centre returns to a nadir view; no
   page errors.
+
+### 3.15 Judging review and polish (2026-11-15)
+
+Mock judging (two judges per criterion, two objective analysts): see `docs/JUDGING_REVIEW.md` for
+scores, the challenge text and the full list. Applied:
+- **Globe drag** grabs and spins the Moon on both axes (left/right had stayed camera-style after the
+  earlier Y-only inversion), at 1:1 with the pointer (`grabScale` in `orbitCameraMath.ts`). Checked:
+  the ground under the pointer stays within 0.001° after a drag.
+- **Planner pass/fail:** `power_ok` / `heat_ok` / `comm_ok` per cell and window; a base is chosen by
+  fewest unmet needs, then score; windows meeting every need rank first; `failure_reasons` in plain
+  numbers. **Cable length** (`max_cable_km`) limits panel/antenna spots to those near the base;
+  `distance_km` on every spot.
+- **Equipment height** (`equipment_height_m`, default 2 m) for panel sunlight and Earth contact; the
+  heat model keeps 0 m (two series per cell; about 2x the time: the demo region takes ~30 s).
+  At -89.46, -137.49 (Dec 2026 - Jan 2027): Earth in view 0% at 0 m vs 24% at 2 m in the planner;
+  `/api/earth-link` gives 16% at 0 m and 27% at 2 m. The two skyline engines agree within a few
+  points from 2 m up; at 0 m the nearest ground dominates.
+- **`GET /api/mission/sky`** + `HorizonChart.tsx`: terrain skyline with Sun and Earth tracks.
+- **Results first** (verdict card, folded form), CSV/JSON download, base-to-equipment lines on the
+  Moon, **Compare sites side by side** (9 Artemis III region centres in ~16 s), one-click demo,
+  challenge name in the panel, README front page, pin labels within 150 km, one-row toolbar.
+- Tests: backend 160, frontend 98. Verified in headless Chrome (demo, verdict, horizon chart,
+  comparison, toolbar, drag; no page errors).
+
+### 3.16 Detailed analysis tab removed from the UI (2026-11-15)
+
+Decision: the planner (power, heat, communication, horizon chart, site comparison) answers the
+challenge; the Detailed analysis tab repeated it with different engines (Horizons vs SPICE) and
+extra forms, which the judges found confusing. Removed from the UI only: `App.tsx` no longer mounts
+`EnergyPlanner`, `SunPanel` or `EarthLinkPanel` (the `DetailedTabs` helper is gone), and
+`MissionPlanner.tsx` has no tabs (no `advanced` prop). Kept: the three components and their tests,
+and every backend route (`/v1/*`, `/api/earth-link`, `/api/sun/*`). To re-add: pass an `advanced`
+node again and restore the tab buttons (see git history before this change).
 
 ## 4. Verified live (real LOLA terrain and Horizons)
 

@@ -54,6 +54,8 @@ def series(location, times):
         "visible_fraction": fraction,
         "incidence": incidence,
         "earth_elevation": angles[:, 1],
+        "earth_azimuth": azimuth[:, 1],
+        "skyline": horizons,
         "earth_visible": angles[:, 1] > h[:, 1],
         "toa": beam,
         "full_tracking": full,

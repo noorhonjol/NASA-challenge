@@ -1,12 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GlobeHandle, GlobeOptions } from "./globe/createLunarViewer";
 import { fetchPositions, fetchSites, fetchTerrainManifest, type Positions, type Site, type TerrainManifest } from "./api/client";
-import { EnergyPlanner } from "./components/EnergyPlanner";
 import { MissionPlanner, type GlobeOverlay } from "./components/MissionPlanner";
 import type { LatLon } from "./api/mission";
 import { LunarGlobe } from "./components/LunarGlobe";
-import { EarthLinkPanel } from "./components/EarthLinkPanel";
-import { SunPanel } from "./components/SunPanel";
 import { addDays } from "./mission";
 
 type Spot = { lat: number; lon: number; elevation: number; name: string };
@@ -16,20 +13,6 @@ const parseCoordinate = (text: string, limit: number) => {
   const value = Number(text.trim());
   return text.trim() !== "" && Number.isFinite(value) && Math.abs(value) <= limit ? value : null;
 };
-
-/** The detailed tools, one at a time. Hidden tabs stay mounted, so their results survive switching. */
-function DetailedTabs({ note, tabs }: { note: string; tabs: { id: string; label: string; content: ReactNode }[] }) {
-  const [active, setActive] = useState(tabs[0].id);
-  return <>
-    <p className="mission-note">{note}</p>
-    <div className="mission-subtabs" role="tablist" aria-label="Detailed analysis topics">
-      {tabs.map(t => <button key={t.id} type="button" role="tab" id={`detail-tab-${t.id}`} aria-controls={`detail-panel-${t.id}`}
-        aria-selected={active === t.id} onClick={() => setActive(t.id)}>{t.label}</button>)}
-    </div>
-    {tabs.map(t => <div key={t.id} role="tabpanel" id={`detail-panel-${t.id}`} aria-labelledby={`detail-tab-${t.id}`}
-      className="mission-detail" hidden={active !== t.id}>{t.content}</div>)}
-  </>;
-}
 
 function App() {
   const [plannerOpen, setPlannerOpen] = useState(false);
@@ -140,6 +123,9 @@ function App() {
     return { latitude, longitude, elevation };
   };
   const checkSite = () => { setPlannerKey(key => key + 1); setPlannerOpen(true); };
+  // One-click demo: a fresh planner on an Artemis III region, searched straight away.
+  const [demo, setDemo] = useState<string | null>(null);
+  const runDemo = () => { setDemo("artemis3-de-gerlache-rim-2"); setPlannerKey(key => key + 1); setPlannerOpen(true); };
   const startDrawing = () => { setPinPlacement(false); setProbing(false); setDraft([]); setDrawing(true); };
   const stopDrawing = (keep: boolean) => {
     if (keep) setDrawnPolygon(draft);
@@ -168,7 +154,9 @@ function App() {
         <label className="terrain-toggle"><input type="checkbox" checked={terrainEnabled} onChange={e => setTerrainEnabled(e.target.checked)} />3D elevation terrain</label>
         {terrain && <p>{terrain.regions.some(region => region.product_id === 81) ? "Product 81 · Continuous coverage, 87–90°S. Local 50 m overview with cached 5 m detail." : `${terrain.regions.length} prepared regions · Select one for 5 m detail.`}</p>}
       </div>}>
-    <p className="panel-intro">Pick a landing site at the lunar south pole, then check its sunlight, temperature and Earth contact.</p>
+    <p className="panel-challenge">NASA Space Apps 2026 · Lunar Landing Site Navigator</p>
+    <p className="panel-intro">Compare south-pole landing sites and dates: where and when the Sun powers a mission, the ground stays survivable and Earth is in view.</p>
+    <button type="button" className="demo-button" onClick={runDemo}>▶ Try it: best 14 days at Artemis III “de Gerlache Rim 2”</button>
 
     <section className="panel-section" aria-label="Site">
       <label className="section-label">Site<select value={selected} onChange={event => chooseSite(event.target.value)}>
@@ -227,17 +215,13 @@ function App() {
     </LunarGlobe>
     </div>
     <aside id="mission-planner" className="planner-drawer" aria-label="Mission planner" hidden={!plannerOpen}>
-      <MissionPlanner key={plannerKey}
+      <MissionPlanner key={plannerKey} demo={demo}
         location={location ? { kind: "location", lat: location.lat, lon: location.lon, name: location.name } : null}
         sites={allSites} mission={mission} onMissionChange={(start, end) => { clearSky(); setMission({ start, end }); }}
         drawn={drawnPolygon} onDraw={startDrawing} onFly={pickSpot} onOverlay={setPlannerOverlay}
         onClose={() => setPlannerOpen(false)}
         probing={probing} onProbe={on => { setProbing(on); if (on) setPinPlacement(false); }} probe={probe}
-        advanced={location && validStart ? <DetailedTabs note={`Detailed tools for ${location.name}. They use the same mission time range.`} tabs={[
-          { id: "power", label: "Power", content: <EnergyPlanner key={`${location.lat}:${location.lon}:${mission.start}`} lat={location.lat} lon={location.lon} at={mission.start} siteName={location.name} embedded onClose={() => setPlannerOpen(false)} /> },
-          { id: "heat", label: "Heat & sunlight", content: <SunPanel key={`sun|${location.lat}|${location.lon}|${mission.start}|${mission.end}`} lat={location.lat} lon={location.lon} start={mission.start} end={mission.end} onPick={pickSpot} /> },
-          { id: "earth", label: "Earth contact", content: <EarthLinkPanel key={`earth|${location.lat}|${location.lon}|${mission.start}|${mission.end}`} lat={location.lat} lon={location.lon} start={mission.start} end={mission.end} /> },
-        ]} /> : <p className="mission-note">{location ? "Enter a valid mission start time first." : "Pick a site first: choose one in the panel or click a pin on the Moon."}</p>} />
+      />
     </aside>
   </main>;
 }

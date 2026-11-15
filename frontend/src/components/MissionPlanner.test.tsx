@@ -18,22 +18,24 @@ const detail = (power: number, heat: number, comm: number) => ({
 const spot = (cell: number, lat: number, lon: number, d: ReturnType<typeof detail>) => ({ cell, lat, lon, slope_deg: 4, elevation_m: 1000, ...d });
 const cells = [[-86.7, -24], [-86.7, -21], [-86.9, -24], [-86.9, -21]].map(([lat, lon]) => ({ lat, lon, slope_deg: 4, elevation_m: 1000 }));
 const cellDetails = [detail(100, 100, 40), detail(60, 100, 90), detail(20, 50, 10), detail(80, 100, 70)];
-const makeWindow = (index: number, start: string, end: string, score: number) => ({
-  index, start, end, score, parts: { power: 100, heat: 100, comm: 90 },
+const makeWindow = (index: number, start: string, end: string, score: number, feasible = true) => ({
+  index, start, end, score, parts: { power: 100, heat: 100, comm: 90 }, feasible,
+  fails: feasible ? [] : [{ criterion: "comm", text: "Communication: Earth in view 20% (need 50%), longest blackout 90 h (allowed 48 h)" }],
+  met: { power: true, heat: true, comm: feasible, slope: true },
   base: spot(1, -86.7, -21, cellDetails[1]),
-  solar_spots: [spot(0, -86.7, -24, cellDetails[0]), spot(3, -86.9, -21, cellDetails[3]), spot(1, -86.7, -21, cellDetails[1])],
+  solar_spots: [{ ...spot(0, -86.7, -24, cellDetails[0]), distance_km: 5.3 }, spot(3, -86.9, -21, cellDetails[3]), spot(1, -86.7, -21, cellDetails[1])],
   comm_spots: [spot(1, -86.7, -21, cellDetails[1]), spot(3, -86.9, -21, cellDetails[3]), spot(0, -86.7, -24, cellDetails[0])],
   maps: { site: cellDetails.map(c => c.site), power: cellDetails.map(c => c.power), heat: cellDetails.map(c => c.heat), comm: cellDetails.map(c => c.comm) },
   cells: cellDetails,
 });
 const needs = { load_w: 1000, panel_area_m2: 10, efficiency: 0.3, tracking: true, battery_hours: 30, min_k: 70, max_k: 380,
-  min_visible_fraction: 0.5, max_blackout_hours: 48, max_slope_deg: 15, labels: { power: "Mid power", heat: "Robotic", communication: "Frequent" } };
+  min_visible_fraction: 0.5, max_blackout_hours: 48, max_slope_deg: 15, max_cable_km: null, equipment_height_m: 2, labels: { power: "Mid power", heat: "Robotic", communication: "Frequent" } };
 const regionResult = {
   kind: "polygon", cells, grid: { rows: 2, cols: 2, resolution_m: 3840, cell_rows: [0, 0, 1, 1], cell_cols: [0, 1, 0, 1] },
   timeline: { starts: ["2026-12-01T00:00:00+00:00", "2026-12-02T00:00:00+00:00", "2026-12-20T00:00:00+00:00"],
     score: [96.7, 50, 80], power: [100, 50, 90], heat: [100, 50, 80], comm: [90, 50, 70] },
-  windows: [makeWindow(0, "2026-12-01T00:00:00+00:00", "2026-12-15T00:00:00+00:00", 96.7), makeWindow(2, "2026-12-20T00:00:00+00:00", "2027-01-03T00:00:00+00:00", 80)],
-  need_kwh: 336, needs, period: { start: "", end: "", mission_days: 14 }, step_hours: 2, window_stride_hours: 24, window_count: 3,
+  windows: [makeWindow(0, "2026-12-01T00:00:00+00:00", "2026-12-15T00:00:00+00:00", 96.7), makeWindow(2, "2026-12-20T00:00:00+00:00", "2027-01-03T00:00:00+00:00", 80, false)],
+  feasible_count: 1, need_kwh: 336, needs, period: { start: "", end: "", mission_days: 14 }, step_hours: 2, window_stride_hours: 24, window_count: 3,
   limitations: ["Screening only."], sources: {},
 } as unknown as SearchResult;
 const pointResult = { ...regionResult, kind: "point", cells: [cells[1]], grid: null,
@@ -41,11 +43,15 @@ const pointResult = { ...regionResult, kind: "point", cells: [cells[1]], grid: n
   timeline: { ...regionResult.timeline, score: [61, 50, 70], power: [62, 50, 70], heat: [63, 50, 70], comm: [64, 50, 70] } } as unknown as SearchResult;
 
 type Body = Record<string, unknown> & { where: { type: string } };
+const sky = { lat: -86.7, lon: -21, height_m: 2, step_hours: 1, skyline_deg: Array.from({ length: 360 }, (_, i) => i < 180 ? 1 : 3),
+  times: ["a", "b"], sun: { azimuth_deg: [90, 270], elevation_deg: [1.5, 1.5], visible_fraction: [1, 0] },
+  earth: { azimuth_deg: [0, 10], elevation_deg: [2, 2], visible: [true, true] }, source: "test" };
 function stubFetch(result: SearchResult = regionResult, failWith?: string) {
   const posted: Body[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/mission/regions") return { ok: true, json: async () => regions };
     if (url === "/api/mission/search/options") return { ok: false, status: 404, json: async () => ({}) };     // built-in defaults
+    if (url.startsWith("/api/mission/sky")) return { ok: true, json: async () => sky };
     if (url === "/api/mission/search" && init?.method === "POST") {
       posted.push(JSON.parse(String(init.body)));
       if (failWith) return { ok: false, status: 422, json: async () => ({ detail: failWith }) };
@@ -65,7 +71,7 @@ function planner(overrides: Partial<Parameters<typeof MissionPlanner>[0]> = {}) 
       elevation_m: 1800, frame: "MOON_ME", is_fictional: false, notes: null }],
     mission: { start: "2026-12-01T00:00", end: "2027-01-30T00:00" },
     onMissionChange: vi.fn(), drawn: null, onDraw: vi.fn(), onFly: vi.fn(), onOverlay: vi.fn(), onClose: vi.fn(),
-    advanced: <p>Advanced tools here</p>, probing: false, onProbe: vi.fn(), probe: null,
+    probing: false, onProbe: vi.fn(), probe: null,
     ...overrides,
   };
   const view = render(<MissionPlanner {...props} />);
@@ -80,7 +86,8 @@ test("a site search sends the period, mission length and the three basic criteri
   find();
   await results();
   expect(posted[0]).toEqual({ where: { type: "point", lat: -86.7, lon: -21 }, start: "2026-12-01T00:00:00Z", end: "2027-01-30T00:00:00Z",
-    mission_days: 14, power: { tier: "mid", tracking: true }, heat: { profile: "robotic" }, comm: { frequency: "mid" }, max_slope_deg: 15 });
+    mission_days: 14, power: { tier: "mid", tracking: true }, heat: { profile: "robotic" }, comm: { frequency: "mid" }, max_slope_deg: 15,
+    equipment_height_m: 2 });
   const list = screen.getByRole("list", { name: "Best windows" });
   expect(within(list).getAllByRole("button")).toHaveLength(1);
   expect(list).toHaveTextContent("20 Dec 2026 – 3 Jan 2027");
@@ -185,19 +192,66 @@ test("drawing hands off to the globe", () => {
   expect(props.onDraw).toHaveBeenCalled();
 });
 
-test("complicated tools stay in the Detailed analysis tab", () => {
-  stubFetch();
-  planner();
-  expect(screen.queryByText("Advanced tools here")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("tab", { name: "Detailed analysis" }));
-  expect(screen.getByText("Advanced tools here")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Find the best windows" })).not.toBeInTheDocument();
-});
-
 test("without a selected site, the planner starts on the known regions", async () => {
   stubFetch();
   planner({ location: null });
   expect(screen.getByRole("radio", { name: /Selected site/ })).toBeDisabled();
   expect(screen.getByRole("radio", { name: /Artemis III region or known site/ })).toBeChecked();
   expect(await screen.findByRole("option", { name: /Haworth · 30×29 km/ })).toBeInTheDocument();
+});
+
+
+test("results come first: a verdict says whether every need is met, why not, and what the score means", async () => {
+  stubFetch();
+  planner({ drawn: [[-86.6, -25], [-86.6, -20], [-87, -20]] });
+  find();
+  await results();
+  const verdict = screen.getByText(/1 of 3 windows meet every need/).closest(".verdict-card") as HTMLElement;
+  expect(verdict).toHaveTextContent("Panels: sunlit 80%, longest darkness 20 h (battery 30 h). Antenna: in view 60%, longest blackout 30 h. Base: surface 120–250 K.");
+  expect(verdict).toHaveTextContent("averages the base's heat (100) with the best panel spot (100) and the best antenna spot (90)");
+  // The form folds away; it comes back on request.
+  expect(screen.queryByRole("button", { name: "Find the best windows" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Change the search" }));
+  expect(screen.getByRole("button", { name: "Find the best windows" })).toBeInTheDocument();
+  // A window that misses a need says which and why.
+  const list = screen.getByRole("list", { name: "Best windows" });
+  expect(list).toHaveTextContent("✓ meets all needs");
+  expect(list).toHaveTextContent("✗ Earth contact");
+  fireEvent.click(within(list).getAllByRole("button")[1]);
+  expect(screen.getByText(/Earth in view 20% \(need 50%\)/)).toBeInTheDocument();
+  // Distance from the base, and the horizon chart for the base.
+  expect(screen.getByText("5.3 km")).toBeInTheDocument();
+  expect(await screen.findByRole("img", { name: /Terrain horizon with the Sun above it 50% and Earth 100% of the time/ })).toBeInTheDocument();
+});
+
+test("the layout settings go into the request", async () => {
+  const posted = stubFetch(pointResult);
+  planner();
+  fireEvent.change(screen.getByLabelText("Longest cable from the base (km, optional)"), { target: { value: "3" } });
+  fireEvent.change(screen.getByLabelText("Panel and antenna height (m)"), { target: { value: "5" } });
+  find();
+  await results();
+  expect(posted[0]).toMatchObject({ max_cable_km: 3, equipment_height_m: 5 });
+});
+
+test("named sites and Artemis III region centres can be compared side by side", async () => {
+  const posted = stubFetch(pointResult);
+  planner();
+  fireEvent.click(screen.getByText("Compare sites side by side"));
+  await screen.findByRole("checkbox", { name: "Haworth (Artemis III region centre)" });
+  fireEvent.click(screen.getByRole("button", { name: "All Artemis III regions" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Site04 · Shackleton rim" }));
+  fireEvent.click(screen.getByRole("button", { name: "Compare 2 sites" }));
+  const table = await screen.findByRole("table", { name: "Site comparison" });
+  await within(table).findAllByText("20 Dec 2026 – 3 Jan 2027", {}, { timeout: 4000 });
+  expect(posted.map(b => b.where)).toEqual([{ type: "point", lat: -86.8, lon: -22.5 }, { type: "point", lat: -89.76, lon: -171.87 }]);
+  expect(within(table).getByRole("button", { name: "Haworth (Artemis III region centre)" })).toBeInTheDocument();
+});
+
+test("the demo opens on its Artemis III region and searches straight away", async () => {
+  const posted = stubFetch();
+  planner({ demo: "artemis3-haworth" });
+  await results();
+  expect(posted[0].where).toEqual({ type: "polygon", coordinates: regions.regions[0].polygon });
+  expect(posted).toHaveLength(1);
 });

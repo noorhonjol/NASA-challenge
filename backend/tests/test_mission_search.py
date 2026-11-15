@@ -1,5 +1,5 @@
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
@@ -84,7 +84,8 @@ def test_fixed_panels_pick_the_best_direction():
 
 def test_window_score_combines_base_heat_with_the_best_panel_and_antenna_spots():
     s = {"power": np.array([[100.0], [0.0]]), "comm": np.array([[0.0], [80.0]]), "heat": np.array([[50.0], [100.0]]),
-         "slope_ok": np.array([True, True])}
+         "slope_ok": np.array([True, True]), "power_ok": np.array([[True], [False]]), "comm_ok": np.array([[False], [True]]),
+         "heat_ok": np.array([[False], [True]])}
     ws = m.window_scores(s)
     assert ws["base_cell"][0] == 1 and ws["power_cell"][0] == 0 and ws["comm_cell"][0] == 1
     assert ws["score"][0] == pytest.approx((100 + 100 + 80) / 3)
@@ -108,7 +109,7 @@ def test_needs_resolve_basic_choices_and_advanced_overrides():
 
 @pytest.fixture
 def offline(monkeypatch):
-    def fake_cell_arrays(lat, lon, times, progress=None):
+    def fake_cell_arrays(lat, lon, times, progress=None, height_m=2.0):
         out = fake_arrays(2, len(times) - 1, 1)
         n = len(lat)
         arrays = {k: (np.resize(v, (n, v.shape[1])) if v.ndim == 2 else np.resize(v, n)) for k, v in out.items()}
@@ -175,3 +176,79 @@ def test_options_list_the_basic_choices():
     with TestClient(app) as client:
         options = client.get("/api/mission/search/options").json()
     assert set(options["power"]) == {"low", "mid", "high"} and set(options["comm"]) == {"high", "mid", "low"}
+
+
+def flags(power, comm, heat, power_ok, comm_ok, heat_ok, slope_ok):
+    a = lambda x, t=float: np.array(x, dtype=t)  # noqa: E731
+    return {"power": a(power), "comm": a(comm), "heat": a(heat), "power_ok": a(power_ok, bool), "comm_ok": a(comm_ok, bool),
+            "heat_ok": a(heat_ok, bool), "slope_ok": a(slope_ok, bool)}
+
+
+def test_a_window_that_meets_every_need_ranks_above_a_higher_score_that_fails_one():
+    # Window 0: high scores but Earth contact falls short. Window 1: lower, but everything is met.
+    s = flags(power=[[100, 70]], comm=[[95, 60]], heat=[[100, 70]], power_ok=[[True, True]], comm_ok=[[False, True]],
+              heat_ok=[[True, True]], slope_ok=[True])
+    ws = m.window_scores(s)
+    assert list(ws["fails"]) == [1, 0]
+    assert m.pick_windows(ws["score"], np.array([0, 100]), 10, fails=ws["fails"]) == [1, 0]
+
+
+def test_the_cable_length_limits_which_panel_and_antenna_spots_a_base_can_use():
+    # Cell 0 is a good base but only the far cell 2 has good communication.
+    s = flags(power=[[100], [100], [0]], comm=[[0], [0], [100]], heat=[[100], [0], [0]],
+              power_ok=[[True], [True], [False]], comm_ok=[[False], [False], [True]],
+              heat_ok=[[True], [False], [False]], slope_ok=[True, True, True])
+    free = m.window_scores(s)
+    assert free["fails"][0] == 0 and free["comm_cell"][0] == 2
+    dist = m.separation_km(np.array([-89.0, -89.0, -88.0]), np.array([0.0, 1.0, 0.0]))
+    assert dist[0, 2] == pytest.approx(1737.4 * np.radians(1.0), rel=1e-6)
+    tied = m.window_scores(s, dist <= 5)
+    assert tied["fails"][0] >= 1 and not tied["comm_met"][0]
+
+
+def test_failure_reasons_say_what_is_missing_in_plain_numbers():
+    needs = m.resolve_needs({"tier": "mid"}, {"profile": "robotic"}, {"frequency": "mid"}, 15, 2)
+    arrays = fake_arrays(2, 240, 10)
+    arrays["earth_visible"][:] = False                             # Earth never in view anywhere
+    s = m.score_windows(arrays, np.full((2, 240), 200.0), 10, 1.0, 2, 10, needs)
+    ws = m.window_scores(s)
+    assert not ws["comm_met"].any()
+    reasons = m.failure_reasons(s, ws, 0, needs)
+    assert [r["criterion"] for r in reasons] == ["comm"]
+    assert "Earth in view 0% (need 50%)" in reasons[0]["text"] and "longest blackout 48 h" in reasons[0]["text"]
+
+
+def test_equipment_height_is_used_for_panels_and_earth_but_heat_stays_on_the_ground(monkeypatch):
+    seen = []
+
+    def fake_series(location, times):
+        seen.append(location.height_m)
+        n = len(times)
+        base = {k: np.full(n, location.height_m) for k in ("visible_fraction", "full_tracking", "vertical_tracking",
+                                                            "sun_elevation", "sun_azimuth", "terrain", "incidence")}
+        return base | {"earth_visible": np.full(n, location.height_m > 0), "location": {"slope_deg": 2.0, "elevation_m": 10.0}}
+    monkeypatch.setattr(m, "series", fake_series)
+    out = m.cell_arrays(np.array([-89.0]), np.array([0.0]), [START, START], height_m=3.0)
+    assert sorted(seen) == [0, 3.0]
+    assert out["earth_visible"][0].all() and out["vertical_tracking"][0, 0] == 3.0
+    assert out["terrain"][0, 0] == 0 and out["incidence"][0, 0] == 0
+
+
+
+def test_sky_view_returns_the_skyline_and_both_tracks(monkeypatch):
+    def fake_series(location, times):
+        n = len(times)
+        return {"skyline": np.linspace(0, 3, 360), "sun_azimuth": np.full(n, 90.0), "sun_elevation": np.full(n, 1.2),
+                "visible_fraction": np.full(n, 0.5), "earth_azimuth": np.full(n, 350.0), "earth_elevation": np.full(n, -2.0),
+                "earth_visible": np.zeros(n, bool)}
+    monkeypatch.setattr(m, "series", fake_series)
+    out = m.sky_view(-89.4, 10, START, START + timedelta(days=10), 2.0, max_samples=100)
+    assert len(out["skyline_deg"]) == 360 and out["height_m"] == 2.0
+    assert out["step_hours"] == 2.5 and len(out["times"]) == len(out["sun"]["azimuth_deg"]) == 97
+    assert out["earth"]["visible"][0] is False and out["sun"]["visible_fraction"][0] == 0.5
+
+
+def test_sky_endpoint_validates_the_period():
+    with TestClient(app) as client:
+        r = client.get("/api/mission/sky", params={"lat": -89.4, "lon": 10, "start": "2026-12-10T00:00:00Z", "end": "2026-12-01T00:00:00Z"})
+    assert r.status_code == 422 and "ends after it starts" in r.text

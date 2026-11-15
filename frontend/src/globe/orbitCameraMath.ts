@@ -72,3 +72,13 @@ export function zoomFrame(frame: CameraFrame, factor: number, bodyRadius: number
   const nextRadius = bodyRadius + Math.max(minAltitude, Math.min(maxAltitude, altitude * factor));
   return { ...frame, position: scale(unit(frame.position), nextRadius) };
 }
+
+/**
+ * Orbit drag speed: radians of rotation about the body centre per dragged pixel, so that the ground
+ * below the camera moves with the pointer (grab-and-spin). One pixel spans 2·tan(fovy/2)/height of
+ * the view at that ground, i.e. that distance divided by the body radius as an angle. Capped at
+ * half a turn per screen height for far views, where the Moon is small.
+ */
+export function grabScale(fovy: number, heightPx: number, altitudeM: number, bodyRadiusM: number) {
+  return Math.min(Math.PI / heightPx, 2 * Math.tan(fovy / 2) / heightPx * altitudeM / bodyRadiusM);
+}

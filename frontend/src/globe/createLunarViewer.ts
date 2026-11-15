@@ -26,6 +26,8 @@ export type GlobeOptions = {
     spots: { lat: number; lon: number; label: string; pass: boolean; color?: string }[];
     /** Score surface: values (0-100) at grid cell centres, drawn smoothly over the terrain. */
     surface?: { cells: [number, number][]; cellRows: number[]; cellCols: number[]; values: (number | null)[] } | null;
+    /** Lines over the ground between two places (base to panels, base to antenna), labelled midway. */
+    links?: { from: [number, number]; to: [number, number]; label: string; color: string }[];
   } | null;
 };
 
@@ -357,7 +359,8 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
       label: {
         text: marker.name,
         // Names of other pins only when the camera is within 400 km: the whole-Moon view stays readable.
-        distanceDisplayCondition: isSelected ? undefined : new Cesium.DistanceDisplayCondition(0, 400_000),
+        // Other pins' names only when zoomed in (150 km): the south-pole view stays readable.
+        distanceDisplayCondition: isSelected ? undefined : new Cesium.DistanceDisplayCondition(0, 150_000),
         heightReference: reference,
         disableDepthTestDistance: depthOff,
         show: capShow,
@@ -470,30 +473,34 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
   const groundAt = (lat: number, lon: number) =>
     cap?.heightAt(lat, lon) ?? scene.globe.getHeight(Cesium.Cartographic.fromDegrees(lon, lat)) ?? 0;
 
+  /** Points along the great circle from a to b ([lat, lon]), about 0.9 km apart, `lift` m above the ground. */
+  function groundPath([lat0, lon0]: [number, number], [lat1, lon1]: [number, number], lift: number) {
+    const out: Cesium.Cartesian3[] = [];
+    const a = Cesium.Cartesian3.normalize(Cesium.Cartesian3.fromDegrees(lon0, lat0, 0, ellipsoid), new Cesium.Cartesian3());
+    const b = Cesium.Cartesian3.normalize(Cesium.Cartesian3.fromDegrees(lon1, lat1, 0, ellipsoid), new Cesium.Cartesian3());
+    const angle = Cesium.Cartesian3.angleBetween(a, b);
+    const steps = Math.max(1, Math.ceil(angle / 0.0005));
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      // Spherical interpolation along the great circle between the two places.
+      const sa = angle > 1e-9 ? Math.sin((1 - t) * angle) / Math.sin(angle) : 1 - t;
+      const sb = angle > 1e-9 ? Math.sin(t * angle) / Math.sin(angle) : t;
+      const dir = Cesium.Cartesian3.add(Cesium.Cartesian3.multiplyByScalar(a, sa, new Cesium.Cartesian3()),
+        Cesium.Cartesian3.multiplyByScalar(b, sb, new Cesium.Cartesian3()), new Cesium.Cartesian3());
+      const c = ellipsoid.cartesianToCartographic(dir);
+      if (!c) continue;
+      const lat = Cesium.Math.toDegrees(c.latitude), lon = Cesium.Math.toDegrees(c.longitude);
+      out.push(Cesium.Cartesian3.fromDegrees(lon, lat, groundAt(lat, lon) + lift, ellipsoid));
+    }
+    return out;
+  }
+
   function drawOverlay(overlay: NonNullable<GlobeOptions["overlay"]>) {
     const corners = overlay.polygon ?? [];
     const lift = 150;   // keep the outline just above the terrain it follows
     const path: Cesium.Cartesian3[] = [];
     const edges = overlay.closed ? corners.length : corners.length - 1;
-    for (let i = 0; i < edges; i++) {
-      const [lat0, lon0] = corners[i], [lat1, lon1] = corners[(i + 1) % corners.length];
-      const a = Cesium.Cartesian3.normalize(Cesium.Cartesian3.fromDegrees(lon0, lat0, 0, ellipsoid), new Cesium.Cartesian3());
-      const b = Cesium.Cartesian3.normalize(Cesium.Cartesian3.fromDegrees(lon1, lat1, 0, ellipsoid), new Cesium.Cartesian3());
-      const angle = Cesium.Cartesian3.angleBetween(a, b);
-      const steps = Math.max(1, Math.ceil(angle / 0.0005));      // about 0.9 km per segment
-      for (let k = 0; k <= steps; k++) {
-        const t = k / steps;
-        // Spherical interpolation along the great circle between the corners.
-        const sa = angle > 1e-9 ? Math.sin((1 - t) * angle) / Math.sin(angle) : 1 - t;
-        const sb = angle > 1e-9 ? Math.sin(t * angle) / Math.sin(angle) : t;
-        const dir = Cesium.Cartesian3.add(Cesium.Cartesian3.multiplyByScalar(a, sa, new Cesium.Cartesian3()),
-          Cesium.Cartesian3.multiplyByScalar(b, sb, new Cesium.Cartesian3()), new Cesium.Cartesian3());
-        const c = ellipsoid.cartesianToCartographic(dir);
-        if (!c) continue;
-        const lat = Cesium.Math.toDegrees(c.latitude), lon = Cesium.Math.toDegrees(c.longitude);
-        path.push(Cesium.Cartesian3.fromDegrees(lon, lat, groundAt(lat, lon) + lift, ellipsoid));
-      }
-    }
+    for (let i = 0; i < edges; i++) path.push(...groundPath(corners[i], corners[(i + 1) % corners.length], lift));
     const outline = Cesium.Color.fromCssColorString("#fde725");
     if (path.length > 1) viewer.entities.add({ id: "mission-area", name: "Mission area", polyline: {
       positions: path, width: 3, arcType: Cesium.ArcType.NONE, material: outline,
@@ -503,6 +510,17 @@ export const createLunarGlobe: CreateGlobe = async (element, markers, positions,
       position: Cesium.Cartesian3.fromDegrees(lon, lat, groundAt(lat, lon) + lift, ellipsoid),
       point: { pixelSize: 8, color: outline, outlineColor: Cesium.Color.BLACK, outlineWidth: 1, disableDepthTestDistance: Number.POSITIVE_INFINITY },
     }));
+    (overlay.links ?? []).forEach((link, i) => {
+      const color = Cesium.Color.fromCssColorString(link.color);
+      const line = groundPath(link.from, link.to, 60);
+      if (line.length < 2) return;
+      viewer.entities.add({ id: `mission-link-${i}`, name: link.label, polyline: { positions: line, width: 3, arcType: Cesium.ArcType.NONE,
+        material: new Cesium.PolylineDashMaterialProperty({ color, dashLength: 16 }),
+        depthFailMaterial: new Cesium.PolylineDashMaterialProperty({ color: color.withAlpha(0.5), dashLength: 16 }) } });
+      viewer.entities.add({ id: `mission-link-label-${i}`, position: line[Math.floor(line.length / 2)],
+        label: { text: link.label, font: "12px system-ui, sans-serif", fillColor: color, showBackground: true,
+          backgroundColor: Cesium.Color.fromAlpha(Cesium.Color.BLACK, 0.6), disableDepthTestDistance: Number.POSITIVE_INFINITY } });
+    });
     overlay.spots.forEach((spot, i) => viewer.entities.add({ id: `mission-spot-${i}`, name: spot.label,
       position: Cesium.Cartesian3.fromDegrees(spot.lon, spot.lat, groundAt(spot.lat, spot.lon) + lift, ellipsoid),
       point: { pixelSize: 11, color: Cesium.Color.fromCssColorString(spot.color ?? (spot.pass ? "#5fd39a" : "#ff9b8f")),

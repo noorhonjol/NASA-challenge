@@ -1,6 +1,69 @@
 # Lunar Planner
 
-A lunar surface-visibility planner with live JPL Horizons Sun and Earth positions.
+**NASA Space Apps 2026 · Lunar Landing Site Navigator**
+
+> Missions to the Moon's south pole live or die by sunlight and Earth contact: the Sun skims the
+> horizon, crater rims cast shadows for days, and Earth dips behind the terrain. Lunar Planner lets
+> mission planners, educators and the public compare landing sites and dates quickly, and see the
+> Sun and Earth against the real terrain horizon.
+
+![Best mission windows and places at an Artemis III region, with the score surface on the Moon](docs/images/planner-results.png)
+
+## What it answers
+
+| The challenge asks to… | In Lunar Planner |
+|---|---|
+| Compare landing sites | Pick any PGDA south-pole site, your own pin, or one of NASA's 9 Artemis III candidate regions. **Compare sites side by side** ranks several at once; a region search ranks every spot inside it and draws a coloured score surface on the Moon. |
+| Compare dates | Give a long period (up to 180 days) and a mission length: the planner scores every window and lists the best, with a chart of the score through the period. |
+| See the Sun and Earth relative to the horizon | A **horizon chart** draws the real terrain skyline (LOLA, 5 m near the site) with the Sun's and Earth's tracks over the window; **Stand here** puts you on the ground with **Sky & time** to play the sky forward. |
+| Assess power | Energy from sun-tracking or fixed panels against the energy the mission needs, and the longest darkness against the battery. |
+| Assess direct-to-Earth contact | Share of time Earth is in view from the antenna, and the longest blackout. |
+| Be intuitive | Three plain choices (power, heat, communication), a one-click demo, and a verdict that says in words whether every need is met and why not. |
+
+## Try it in 30 seconds
+
+1. Open the app: it starts over the south pole.
+2. Press **▶ Try it: best 14 days at Artemis III "de Gerlache Rim 2"**. The planner searches the next
+   60 days in about half a minute.
+3. Read the verdict at the top: does any window meet every need, and if not, what fails (for example
+   "darkness lasts 52 h, battery covers 30 h").
+4. Look at the Moon: the coloured surface shows where in the region it is best; dashed lines join the
+   base to its solar panels and antenna, with distances.
+5. Look at the horizon chart: gold dots are the Sun, blue dots Earth, faded where terrain hides them.
+6. Press **Fly to the base**, then **Stand here** and **Sky & time**, and press Play.
+
+| Sun and Earth against the real horizon | All 9 Artemis III regions side by side | Standing on the rim |
+|---|---|---|
+| ![Horizon chart](docs/images/horizon-chart.png) | ![Site comparison](docs/images/compare-sites.png) | ![Street view](docs/images/street-view.png) |
+
+## How to read a result
+
+- **✓ / ✗ meets all needs** is strict: every need (power, heat, communication, slope, cable length)
+  must be met in full by the base and the panel and antenna spots it can reach.
+- **Score 0–100** shows how close: each need scores 0–100 (100 when met, falling to 0 at twice its
+  limit) and the window score averages the base's heat with the best panel and antenna spots.
+- Windows that meet every need always rank above ones that do not.
+- All thresholds are illustrative screening values, not agency requirements.
+
+## Data and models
+
+| | Source |
+|---|---|
+| Terrain | NASA PGDA product 81 (LOLA south-pole 5 m mosaic, 87–90°S); global LOLA LDEM_16 beyond |
+| Named sites | NASA PGDA product 78 south-pole regions |
+| Candidate regions | NASA Artemis III candidate landing regions (2024), digitized from NASA's map (a few km accuracy) |
+| Sun and Earth | NAIF SPICE DE440 (offline, for the planner and horizon chart); JPL Horizons (live, for the globe and Sky & time) |
+| Surface temperature | 1-D regolith model, Hayne et al. 2017 (JGR Planets 122) |
+| Earth image | NASA Blue Marble (illustrative) |
+
+Panels and antenna are evaluated 2 m above the ground by default (the nearest bumps would hide a
+sky seen from 0 m); the heat model uses the ground itself. Earth contact is geometric line of sight
+to Earth's centre, not a radio link or a DSN schedule. The heat model has no light or infrared from
+nearby terrain, so permanently shadowed floors read about 10–30 K too cold.
+
+---
+
+# Developer notes
 
 ## Local 3D terrain: download and prepare
 
@@ -42,8 +105,8 @@ mosaic is enabled by default without moving the camera. **Inspect 3D terrain** m
 to an oblique inspection view; ordinary terrain/ephemeris updates preserve the
 camera. **LOLA terrain dataset** switches between the mosaic and global-only view.
 Locations beyond 87 degrees south use the coarse global grid. Heights are
-shown at 1x. Relief shading uses fixed light, not the chosen date's actual shadows;
-Sun/Earth visibility calculations still exclude terrain obstruction.
+shown at 1x. Relief shading uses fixed light, not the chosen date's actual shadows. Sun and
+Earth visibility in the planner, the horizon chart and `/api/earth-link` do account for terrain.
 
 `GET /api/terrain/browser-manifest` lists prepared regions and versioned static asset
 URLs. `/api/terrain/assets/...` streams prepared files only, with no raster decoding,
@@ -181,9 +244,10 @@ every 12 h (periods up to 60 days) or 24 h. Cells: the finest grid with at most 
 160,000 cell-steps. Measured: 100 cells over 60 days in about 10 s; one point in about 2 s.
 The older one-period analysis (`POST /api/mission/analyze`) is still available in the API.
 
-**Detailed analysis tab** (one topic at a time: **Power**, **Heat & sunlight**, **Earth contact**): Noor's Lunar Energy v1 forms (point, region, mission sizing with
-loads and batteries, power windows), and the detailed Earth contact and Sunlight &
-temperature panels.
+The former **Detailed analysis** tab (Noor's Lunar Energy v1 forms, the Earth contact and the
+Sunlight & temperature panels) was removed from the UI: the planner covers the same questions in one
+place. Its components (`EnergyPlanner.tsx`, `EarthLinkPanel.tsx`, `SunPanel.tsx`) and every API route
+(`/v1/*`, `/api/earth-link`, `/api/sun/*`) remain and are tested, so the tab can be re-added.
 
 How `/api/mission/analyze` combines the engines:
 - **Cells:** a point, or the cell centres of the polygon on the Lunar Energy v1 grid, at
@@ -211,7 +275,7 @@ Typical times (live): one site over 7 days, about 5 s; an Artemis region over 30
 
 ## Earth line-of-sight windows
 
-In the app: **Mission planner** → **Detailed analysis** → **Check Earth contact**, or as part of a site analysis.
+API only since the Detailed analysis tab was removed from the UI; the planner's communication criterion covers it.
 
 
 `GET /api/earth-link?lat=-89.77&lon=-171.87&start=2026-11-15T00:00:00Z&end=2026-12-15T00:00:00Z`
@@ -271,7 +335,7 @@ What the results mean:
 
 ## Sunlight, temperature and site judging
 
-In the app: **Mission planner** → **Detailed analysis** → **Sunlight & temperature**. Pick a mission type and
+API only since the Detailed analysis tab was removed from the UI. Pick a mission type and
 click **Check sunlight & temperature**. **Find better spots within 10 km** ranks a 7×7 grid
 around the site, and **Fly here** moves to a result.
 
@@ -305,8 +369,12 @@ How it works:
 Metrics: `illumination_fraction`, `max_darkness_hours`, `mean_irradiance_wm2`,
 `energy_tracking_kwh_m2`, `energy_flat_kwh_m2`, `slope_deg`, `elevation_m`, `min_temp_K`,
 `max_temp_K`, `mean_temp_K`, `temp_range_K`, `earth_visible_fraction`,
-`max_earth_blackout_hours`. Earth metrics use the same ground-level skyline at the sample
+`max_earth_blackout_hours`. Earth metrics use this endpoint's ground-level skyline at the sample
 times; at −88.85°, 90° for December 2026 they agree with `/api/earth-link` (41.9% vs 42.0%).
+Note: `/api/earth-link` and `/api/sun` use one skyline engine (`horizon_profile.py`, from 25 m out),
+the mission planner another (`energy_v1/terrain.py`, from 5 m out on the 5 m map). From 2 m up they
+agree within about 2–3 percentage points; at 0 m the nearest ground dominates and they can differ a
+lot, so equipment is evaluated at 2 m by default.
 
 Limits: up to 900 points, 8,000 time steps per body (spin-up included) and 2,000,000
 points × steps per request. A single site with temperature over 7 days takes about 12 s.
@@ -340,7 +408,7 @@ updating so `/api/positions` appears in `/docs`. If Vite returns 404, check its
 ### 1. Point the backend at a database
 
 ```powershell
-cd C:\workspace\NASA-challenge\backend
+cd <repo>\backend
 Copy-Item .env.example .env
 notepad .env
 ```
@@ -361,7 +429,7 @@ is the JDBC form of the same connection, so the credentials live in one place.
 ### 2. Apply the migrations (once per database)
 
 ```powershell
-cd C:\workspace\NASA-challenge
+cd <repo>
 docker compose run --rm flyway
 ```
 
@@ -380,7 +448,7 @@ Schema "public" is up to date. No migration necessary.
 ### 3. Start the backend
 
 ```powershell
-cd C:\workspace\NASA-challenge\backend
+cd <repo>\backend
 py -m venv .venv                                   # first time only
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
@@ -397,7 +465,7 @@ Defaults to <http://127.0.0.1:8000>. If 8000 is taken:
 In a second terminal:
 
 ```powershell
-cd C:\workspace\NASA-challenge\frontend
+cd <repo>\frontend
 npm.cmd install                                    # first time only
 npm.cmd run dev
 ```
@@ -415,8 +483,8 @@ npm.cmd run dev
 - App: <http://localhost:5173>
 - API docs: <http://127.0.0.1:8000/docs> (or your chosen port)
 
-Expected: a banner saying sites are fictional, a table of three lunar sites with frame
-`MOON_ME` (one elevation shown as `—`), and an interactive lunar globe with three pins.
+Expected: the lunar globe over the south pole with the PGDA 78 site pins, the left panel and the
+**▶ Try it** demo button.
 
 ## API
 
@@ -425,28 +493,31 @@ Expected: a banner saying sites are fictional, a table of three lunar sites with
 | `GET /api/health` | Database round-trip; `503` with `database unavailable` if the DB is down |
 | `GET /api/sites` | All seeded sites, ordered by name |
 | `GET /api/sites/{id}` | One site; `404` if unknown, `422` if the id is not an integer |
+| `POST /api/mission/search`, `GET /api/mission/search/{id}` | Best mission windows and places (background job) |
+| `GET /api/mission/sky` | Terrain skyline with Sun and Earth tracks from one spot |
+| `GET /api/earth-link`, `/api/sun/*`, `/api/positions*`, `/v1/*` | See the sections below and <http://127.0.0.1:8000/docs> for all routes |
 
 ## Verify the database
 
 ```powershell
-cd C:\workspace\NASA-challenge\backend
+cd <repo>\backend
 .\.venv\Scripts\python.exe -c "import psycopg; from app.settings import get_settings; u=get_settings().database_url.replace('postgresql+psycopg://','postgresql://',1)
 with psycopg.connect(u) as c:
     print(c.execute('SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank').fetchall())
     print(c.execute('SELECT slug, frame, is_fictional FROM sites ORDER BY slug').fetchall())"
 ```
 
-Expected: the Flyway baseline row for version 1 with `success = True`, and the three
-fictional sites with `frame = MOON_ME`.
+Expected: the Flyway history rows with `success = True`, and the PGDA 78 sites with
+`frame = MOON_ME` (the early fictional sites were removed in migration V7).
 
 ## Tests
 
 ```powershell
-cd C:\workspace\NASA-challenge\backend
-.\.venv\Scripts\python.exe -m pytest        # 10 tests; uses DATABASE_URL from backend/.env
+cd <repo>\backend
+.\.venv\Scripts\python.exe -m pytest        # about 160 tests; uses DATABASE_URL from backend/.env
 
 cd ..\frontend
-npm.cmd test                                # 11 tests
+npm.cmd test                                # about 100 tests
 npm.cmd run build                           # type-check + production build
 ```
 
@@ -508,7 +579,7 @@ still hide them. They are created once and only moved, so Sky & time steps keep 
 
 **Surface view (street-level).** Scrolling in toward the ground measures zoom from the
 terrain below, not from the reference sphere. Below **800 m** the camera descends to a
-**2 m** eye height and tilts to the horizon, like an astronaut standing there. **Stand on
+**4 m** eye height and tilts to the horizon, like an astronaut standing there. **Stand on
 surface** in the toolbar does the same at the screen centre.
 - **Look:** drag to look around. The ground follows the pointer, as in Street View; the
   view tilts up or down at most 85°.
@@ -549,15 +620,12 @@ surface** in the toolbar does the same at the screen centre.
 - Do not assign Earth `EPSG:4326` to Moon data. Sites carry an explicit lunar frame
   (`frame`), and terrain datasets carry their own `crs`.
 
-## Next milestones
+## Next steps
 
-1. Analysis-run CRUD and run status transitions.
-2. Integrate Horizons or SPICE behind `ephemeris_service.py`; store data with provenance.
-3. Import a real LOLA DEM and compute terrain-aware horizon profiles.
-4. Implement visibility windows with transition refinement.
-5. Add terrain relief to the globe (Cesium Moon 3D Tiles via an ion token, or an imported
-   LOLA DEM) and add visibility charts.
-6. Compare two analysis runs and document uncertainty and limitations.
+See `docs/PROJECT_STATUS.md` sections 5-6 for known issues and ideas. Main candidates: validate
+illumination and Earth visibility against published polar maps (Mazarico et al. 2011, PGDA
+illumination products) and Diviner temperatures; use one skyline engine everywhere; DSN station
+visibility; real-Sun shading of the terrain in Sky & time.
 
 ## Lunar Energy API v1
 
@@ -588,7 +656,7 @@ during energy analysis. The API uses DE440s, the DE440 lunar orientation PCK,
 kernels or DEM files return structured errors. Restart Vite: its proxy now forwards
 both `/api` and `/v1` to `API_PROXY_TARGET`.
 
-Open **Mission planner** → **Detailed analysis**. It provides all four
+The UI form (`EnergyPlanner.tsx`) is no longer mounted; the API provides all four
 analysis tasks. Point and region solar analysis require no equipment. Mission sizing
 requires demand because sunlight cannot determine equipment consumption. Elevation,
 slope and aspect come from LOLA; **height_m** is only the sensor/panel height above

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { centerFrame, lookFrame, magnitude, orbitFrame, rollFrame, zoomFrame, type CameraFrame } from "./orbitCameraMath";
+import { centerFrame, grabScale, lookFrame, magnitude, orbitFrame, rollFrame, zoomFrame, type CameraFrame } from "./orbitCameraMath";
 
 const dot = (a: {x: number; y: number; z: number}, b: {x: number; y: number; z: number}) => a.x * b.x + a.y * b.y + a.z * b.z;
 const initial = () => centerFrame({ x: 0, y: 0, z: 2_000_000 });
@@ -90,4 +90,19 @@ test("a camera rolled onto its side still orbits without breaking", () => {
   for (const v of [next.position, next.direction, next.up]) expect(Number.isFinite(v.x + v.y + v.z)).toBe(true);
   expect(magnitude(next.position)).toBeCloseTo(2, 12);
   expect(dot(next.direction, next.up)).toBeCloseTo(0, 12);
+});
+
+test("grab speed keeps the ground under the pointer and is capped far away", () => {
+  const R = 1_737_400, fovy = Math.PI / 3, h = 900;
+  // 100 km up: one pixel covers 2·tan(30°)·100 km / 900 px ≈ 128 m of ground.
+  const perPixel = grabScale(fovy, h, 100_000, R);
+  expect(perPixel * R).toBeCloseTo(2 * Math.tan(Math.PI / 6) * 100_000 / 900, 6);
+  expect(grabScale(fovy, h, 1e9, R)).toBe(Math.PI / h);
+});
+
+test("dragging right with a negative horizontal turn spins the ground right under a nadir camera", () => {
+  // Camera above the north pole, screen right = +x. Grab-and-spin moves the camera the other way.
+  const start: CameraFrame = { position: {x: 0, y: 0, z: 2}, direction: {x: 0, y: 0, z: -1}, up: {x: 0, y: 1, z: 0} };
+  const dragged = orbitFrame(start, -0.1, 0);                 // what a rightward drag now sends
+  expect(dragged.position.x).toBeLessThan(0);                 // camera moves left, so the ground appears to move right
 });

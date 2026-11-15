@@ -9,7 +9,7 @@
  */
 export type Vec = { x: number; y: number; z: number };
 
-export const EYE_HEIGHT_M = 2;             // an astronaut's eye level
+export const EYE_HEIGHT_M = 20;             // a little above an astronaut's eye level, so nearby bumps do not fill the view
 export const ENTER_ALTITUDE_M = 800;       // zooming in below this (above ground) switches to surface view
 export const EXIT_ALTITUDE_M = 1500;       // leaving surface view rises to this, above the entry height
 export const WALK_SPEED_M_S = 30;

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
@@ -201,6 +201,8 @@ class SearchRequest(BaseModel):
     heat: HeatNeeds = HeatNeeds()
     comm: CommNeeds = CommNeeds()
     max_slope_deg: float = Field(15, ge=0, le=90, description="Steepest ground a base site may have")
+    max_cable_km: float | None = Field(None, gt=0, le=1000, description="Panels and antenna must be this close to the base")
+    equipment_height_m: float = Field(2, ge=0, le=100, description="Height of panels and antenna above the ground")
 
 
 _jobs: dict[str, dict] = {}
@@ -222,7 +224,8 @@ def _prepare(req: SearchRequest):
         raise HTTPException(422, "The ephemeris covers 2020-2035 (the search also needs the month before the start).")
     try:
         needs = search_engine.resolve_needs(req.power.model_dump(), req.heat.model_dump(), req.comm.model_dump(),
-                                            req.max_slope_deg, req.mission_days)
+                                            req.max_slope_deg, req.mission_days, req.max_cable_km,
+                                            req.equipment_height_m)
     except EnergyError as exc:
         _fail(exc)
     times, _, _ = search_engine.plan_times(start, end)
@@ -285,3 +288,18 @@ def search_status(job_id: str):
     if not job:
         raise HTTPException(404, "Unknown or expired search.")
     return {k: v for k, v in job.items() if k != "task"}
+
+
+
+@router.get("/sky", summary="Terrain skyline with the Sun and Earth tracks over a period, as seen from one spot")
+async def sky(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-180, le=360),
+              start: datetime = Query(...), end: datetime = Query(...), height_m: float = Query(2, ge=0, le=100)):
+    start, end = _utc(start, "start"), _utc(end, "end")
+    if end <= start or end - start > timedelta(days=search_engine.MAX_SEARCH_DAYS):
+        raise HTTPException(422, f"Choose a period that ends after it starts, at most {search_engine.MAX_SEARCH_DAYS} days.")
+    if start.year < 2020 or end.year > 2035:
+        raise HTTPException(422, "The ephemeris covers 2020-2035.")
+    try:
+        return await run_in_threadpool(search_engine.sky_view, lat, (lon + 180) % 360 - 180, start, end, height_m)
+    except EnergyError as exc:
+        _fail(exc)

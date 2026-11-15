@@ -80,7 +80,7 @@ test("the mission planner opens beside the globe and closes again", async () => 
   expect(screen.queryByRole("complementary",{name:"Mission planner"})).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button",{name:"Open mission planner"}));
   const drawer = screen.getByRole("complementary",{name:"Mission planner"});
-  expect(within(drawer).getByRole("tab",{name:"Plan"})).toHaveAttribute("aria-selected","true");
+  expect(within(drawer).getByRole("button",{name:"Find the best windows"})).toBeInTheDocument();
   // Nothing picked yet: the planner starts on the known regions.
   expect(within(drawer).getByRole("radio",{name:/Selected site/})).toBeDisabled();
   expect(screen.getByTestId("globe")).toBeInTheDocument();
@@ -92,9 +92,9 @@ test("the mission planner opens beside the globe and closes again", async () => 
   await screen.findByText(/3D terrain unavailable/);
 });
 
-test("Check this site carries the pin and the mission start into the detailed analysis", async () => {
-  const fetch=vi.fn(async (url:string)=>({ok:true,json:async()=>url.startsWith('/v1/')?{meta:{request_id:'pin-test',dem_product:'LOLA',ephemeris:'DE440',computed_in_ms:10,horizon_model:'test',limitations:[]}}:[]}));
-  vi.stubGlobal('fetch',fetch);render(<App/>);
+test("Check this site opens the planner on the pin, and a newly dropped pin replaces it", async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => [] })));
+  render(<App/>);
   fireEvent.click(screen.getByText("Enter coordinates…"));
   fireEvent.change(screen.getByLabelText(/^Latitude/),{target:{value:'-89.7'}});
   fireEvent.change(screen.getByLabelText(/^Longitude/),{target:{value:'-12.3'}});
@@ -103,31 +103,20 @@ test("Check this site carries the pin and the mission start into the detailed an
   fireEvent.click(screen.getByRole('button',{name:'Check this site'}));
   let drawer=screen.getByRole('complementary',{name:'Mission planner'});
   expect(within(drawer).getByRole('radio',{name:/Selected site/})).toBeChecked();
-  fireEvent.change(within(drawer).getByLabelText('Search from (UTC)'),{target:{value:'2026-12-03 05:30'}});
-  fireEvent.click(within(drawer).getByRole('tab',{name:'Detailed analysis'}));
-  expect(within(drawer).getByLabelText('Lunar latitude (° north)')).toHaveValue('-89.7');
-  expect(within(drawer).getByLabelText('Lunar longitude (° east)')).toHaveValue('-12.3');
-  expect(within(drawer).getByLabelText('Time (UTC)')).toHaveValue('2026-12-03 05:30');
-  fireEvent.click(within(drawer).getByRole('button',{name:'Run energy analysis'}));
-  await within(drawer).findByRole('region',{name:'Energy results'});
-  const url=fetch.mock.calls.find(([url])=>url.startsWith('/v1/'))?.[0];
-  expect(url).toContain('lat=-89.7');expect(url).toContain('lon=-12.3');expect(url).toContain('2026-12-03T05%3A30');
+  expect(drawer).toHaveTextContent('Mission site 1 · -89.7000°, -12.3000°');
+  expect(within(drawer).queryByRole('tab',{name:'Detailed analysis'})).not.toBeInTheDocument();
 
-  // A second pin, named and dropped on the Moon, replaces the first in the analysis.
   fireEvent.click(screen.getByRole('button',{name:'Drop a pin'}));
   fireEvent.change(screen.getByLabelText('Pin name (optional)'),{target:{value:'Rim candidate B'}});
   fireEvent.click(screen.getByRole('button',{name:'Place test pin'}));
   expect(screen.getByRole('article',{name:'Selected site'})).toHaveTextContent('Rim candidate B');
   fireEvent.click(screen.getByRole('button',{name:'Check this site'}));
   drawer=screen.getByRole('complementary',{name:'Mission planner'});
-  fireEvent.click(within(drawer).getByRole('tab',{name:'Detailed analysis'}));
-  expect(within(drawer).getByLabelText('Lunar latitude (° north)')).toHaveValue('-88.123');
-  expect(within(drawer).getByLabelText('Time (UTC)')).toHaveValue('2026-12-03 05:30');
-  expect(within(drawer).queryByRole('region',{name:'Energy results'})).not.toBeInTheDocument();
+  expect(drawer).toHaveTextContent('Rim candidate B · -88.1230°, 42.4560°');
   expect(screen.getByRole('option',{name:'Mission site 1'})).toBeInTheDocument();
 });
 
-test("one mission time range drives Show Sun & Earth, and the detailed checks live in the planner", async () => {
+test("one mission time range drives Show Sun & Earth and the planner", async () => {
   const fetch = vi.fn(async (url: string) => ({ ok: true, json: async () => url.startsWith("/api/positions") ? {
     at_utc: "2027-03-10T06:30:00Z", latitude_deg: -85, longitude_deg: 0, elevation_m: 0, source: "JPL Horizons",
     source_url: "", horizon_model: "", sun: { azimuth_deg: 1, elevation_deg: 1, above_horizon: true },
@@ -146,13 +135,5 @@ test("one mission time range drives Show Sun & Earth, and the detailed checks li
   expect(positions.searchParams.get("lat")).toBe("-89.76");
   fireEvent.click(screen.getByRole("button", { name: "Open mission planner" }));
   const drawer = screen.getByRole("complementary", { name: "Mission planner" });
-  fireEvent.click(within(drawer).getByRole("tab", { name: "Detailed analysis" }));
-  // One topic at a time: Power first, then Heat & sunlight and Earth contact.
-  expect(within(drawer).getByRole("tab", { name: "Power" })).toHaveAttribute("aria-selected", "true");
-  expect(within(drawer).queryByRole("button", { name: "Check Earth contact" })).not.toBeInTheDocument();
-  fireEvent.click(within(drawer).getByRole("tab", { name: "Earth contact" }));
-  expect(within(drawer).getByRole("button", { name: "Check Earth contact" })).toBeInTheDocument();
-  expect(within(drawer).queryByRole("button", { name: "Run energy analysis" })).not.toBeInTheDocument();
-  fireEvent.click(within(drawer).getByRole("tab", { name: "Heat & sunlight" }));
-  expect(within(drawer).getByRole("button", { name: "Check sunlight & temperature" })).toBeInTheDocument();
+  expect(within(drawer).getByLabelText("Search from (UTC)")).toHaveValue("2027-03-10 06:30");
 });
